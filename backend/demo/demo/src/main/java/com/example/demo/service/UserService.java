@@ -1,0 +1,700 @@
+package com.example.demo.service;
+
+import java.time.LocalDateTime;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.example.demo.dto.AdminAnalyticsDTO;
+import com.example.demo.dto.AuthRequest;
+import com.example.demo.dto.AuthResponse;
+import com.example.demo.dto.LoginRequest;
+
+import com.example.demo.entity.Admin;
+import com.example.demo.entity.AdminSettings;
+import com.example.demo.entity.AuditLog;
+import com.example.demo.entity.Faculty;
+import com.example.demo.entity.NotificationDocument;
+import com.example.demo.entity.Student;
+import com.example.demo.entity.User;
+
+import com.example.demo.repository.AdminRepository;
+import com.example.demo.repository.AdminSettingsRepository;
+import com.example.demo.repository.AuditLogRepository;
+
+import com.example.demo.repository.FacultyRepository;
+import com.example.demo.repository.NotificationMongoRepository;
+
+import com.example.demo.repository.StudentRepository;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.ProjectMongoRepository;
+import com.example.demo.repository.CertificateMongoRepository;
+import com.example.demo.security.JWTUtil;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+public class UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private StudentRepository studentRepository;
+
+    @Autowired
+    private FacultyRepository facultyRepository;
+
+    @Autowired
+    private AdminRepository adminRepository;
+
+    @Autowired
+    private BCryptPasswordEncoder passwordEncoder;
+
+    @Autowired
+    private AdminSettingsRepository adminSettingsRepository;
+
+    @Autowired
+    private ProjectMongoRepository projectMongoRepository;
+
+    @Autowired
+    private CertificateMongoRepository certificateMongoRepository;
+
+    @Autowired
+    private NotificationMongoRepository notificationMongoRepository;
+
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+
+    @Autowired
+    private JWTUtil jwtUtil;
+
+    // =========================================
+    // STUDENT PROFILE
+    // =========================================
+
+    public Student getStudentProfile(Long id) {
+        return studentRepository.findByUserId(id).orElseThrow();
+    }
+
+    public Student updateStudentProfile(Long id, Student updatedStudent) {
+
+        Student student = studentRepository.findByUserId(id).orElseThrow();
+
+        // Update user fields (name, email)
+        if (updatedStudent.getUser() != null) {
+            User user = student.getUser();
+            if (updatedStudent.getUser().getFullName() != null) {
+                user.setFullName(updatedStudent.getUser().getFullName());
+            }
+            if (updatedStudent.getUser().getEmail() != null) {
+                user.setEmail(updatedStudent.getUser().getEmail());
+            }
+            userRepository.save(user);
+        }
+
+        // Update student fields
+        if (updatedStudent.getDepartment() != null) student.setDepartment(updatedStudent.getDepartment());
+        if (updatedStudent.getSection() != null) student.setSection(updatedStudent.getSection());
+        if (updatedStudent.getEnrollmentYear() != null) student.setEnrollmentYear(updatedStudent.getEnrollmentYear());
+
+        student.setGithubUrl(updatedStudent.getGithubUrl());
+        student.setLinkedinUrl(updatedStudent.getLinkedinUrl());
+        student.setLeetcodeUrl(updatedStudent.getLeetcodeUrl());
+        student.setHackerrankUrl(updatedStudent.getHackerrankUrl());
+        student.setPortfolioUrl(updatedStudent.getPortfolioUrl());
+
+        return studentRepository.save(student);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Student updateStudentProfileFromMap(Long id, java.util.Map<String, Object> body) {
+
+        Student student = studentRepository.findByUserId(id).orElseThrow();
+
+        // Update user fields (name, email)
+        Object userObj = body.get("user");
+        if (userObj instanceof java.util.Map) {
+            java.util.Map<String, Object> userMap = (java.util.Map<String, Object>) userObj;
+            User user = student.getUser();
+            if (userMap.get("fullName") != null) {
+                user.setFullName((String) userMap.get("fullName"));
+            }
+            if (userMap.get("email") != null) {
+                user.setEmail((String) userMap.get("email"));
+            }
+            userRepository.save(user);
+        }
+
+        // Update student fields
+        if (body.get("department") != null) student.setDepartment((String) body.get("department"));
+        if (body.get("section") != null) student.setSection((String) body.get("section"));
+        if (body.get("enrollmentYear") != null) student.setEnrollmentYear((String) body.get("enrollmentYear"));
+        if (body.get("studentCode") != null) student.setStudentCode((String) body.get("studentCode"));
+
+        student.setGithubUrl((String) body.get("githubUrl"));
+        student.setLinkedinUrl((String) body.get("linkedinUrl"));
+        student.setLeetcodeUrl((String) body.get("leetcodeUrl"));
+        student.setHackerrankUrl((String) body.get("hackerrankUrl"));
+        student.setPortfolioUrl((String) body.get("portfolioUrl"));
+
+        return studentRepository.save(student);
+    }
+
+    // =========================================
+    // FACULTY PROFILE
+    // =========================================
+
+    public Faculty getFacultyProfile(Long userId) {
+        Optional<Faculty> faculty = facultyRepository.findByUserId(userId);
+        if (faculty.isPresent()) {
+            return faculty.get();
+        }
+        // Auto-create faculty record if not exists
+        User user = userRepository.findById(userId).orElseThrow();
+        Faculty newFaculty = new Faculty();
+        newFaculty.setUser(user);
+        newFaculty.setDepartment("");
+        return facultyRepository.save(newFaculty);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Faculty updateFacultyProfileFromMap(Long userId, java.util.Map<String, Object> body) {
+        Faculty faculty = facultyRepository.findByUserId(userId)
+                .orElseGet(() -> {
+                    User user = userRepository.findById(userId).orElseThrow();
+                    Faculty f = new Faculty();
+                    f.setUser(user);
+                    return f;
+                });
+
+        // Update user fields (name, email)
+        Object userObj = body.get("user");
+        if (userObj instanceof java.util.Map) {
+            java.util.Map<String, Object> userMap = (java.util.Map<String, Object>) userObj;
+            User user = faculty.getUser();
+            if (userMap.get("fullName") != null) {
+                user.setFullName((String) userMap.get("fullName"));
+            }
+            if (userMap.get("email") != null) {
+                user.setEmail((String) userMap.get("email"));
+            }
+            userRepository.save(user);
+        }
+
+        // Update faculty fields
+        if (body.get("department") != null) faculty.setDepartment((String) body.get("department"));
+        if (body.get("section") != null) faculty.setSection((String) body.get("section"));
+        if (body.get("joiningYear") != null) faculty.setJoiningYear((String) body.get("joiningYear"));
+        if (body.get("facultyCode") != null) faculty.setFacultyCode((String) body.get("facultyCode"));
+        if (body.get("specialization") != null) faculty.setSpecialization((String) body.get("specialization"));
+
+        return facultyRepository.save(faculty);
+    }
+
+    // =========================================
+    // REGISTER
+    // =========================================
+
+    public User register(User user) {
+
+        if (userRepository.existsByEmail(user.getEmail())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Email already registered"
+            );
+        }
+
+        if (user.getRole() == null || user.getRole().isBlank()) {
+            user.setRole("STUDENT");
+        }
+
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+
+        User savedUser = userRepository.save(user);
+
+        saveAuditLog(
+                "User Created",
+                "Created new user: " + user.getFullName(),
+                savedUser.getId()
+        );
+
+        if ("STUDENT".equals(savedUser.getRole())) {
+            Student student = new Student();
+            student.setUser(savedUser);
+            studentRepository.save(student);
+
+        } else if ("FACULTY".equals(savedUser.getRole())) {
+            Faculty faculty = new Faculty();
+            faculty.setUser(savedUser);
+            facultyRepository.save(faculty);
+
+        } else if ("ADMIN".equals(savedUser.getRole())) {
+            Admin admin = new Admin();
+            admin.setUser(savedUser);
+            adminRepository.save(admin);
+        }
+
+        return savedUser;
+    }
+
+    // =========================================
+    // LOGIN (returns JWT string)
+    // =========================================
+
+    public String login(LoginRequest request) {
+
+        User user = userRepository
+                .findByEmail(request.getEmail())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Invalid email or password"
+                ));
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid email or password"
+            );
+        }
+
+        return jwtUtil.generateToken(user.getEmail(), user.getRole());
+    }
+
+    // =========================================
+    // CREATE USER
+    // =========================================
+
+    public User createUser(User user) {
+
+        if (userRepository.existsByEmail(user.getEmail())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Email already registered"
+            );
+        }
+
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+
+        User savedUser = userRepository.save(user);
+
+        saveAuditLog(
+                "User Created",
+                "Created user: " + user.getFullName(),
+                savedUser.getId()
+        );
+
+        return savedUser;
+    }
+
+    // =========================================
+    // GET ALL USERS
+    // =========================================
+
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+
+    // =========================================
+    // GET USER BY ID
+    // =========================================
+
+    public User getUserById(Long id) {
+        return userRepository.findById(id).orElseThrow();
+    }
+
+    // =========================================
+    // DELETE USER
+    // =========================================
+
+    @Transactional
+    public String deleteUser(Long id) {
+
+        if (!userRepository.existsById(id)) {
+            return "User Not Found";
+        }
+
+        User user = userRepository.findById(id).orElse(null);
+
+        // Delete audit logs referencing this user
+        List<AuditLog> auditLogs = auditLogRepository.findByPerformedBy(user);
+        auditLogRepository.deleteAll(auditLogs);
+
+        // Delete related child records first to avoid FK constraint errors
+        Optional<Student> student = studentRepository.findByUserId(id);
+        student.ifPresent(s -> studentRepository.delete(s));
+
+        Optional<Faculty> faculty = facultyRepository.findByUserId(id);
+        if (faculty.isPresent()) {
+            // Unlink students assigned to this faculty
+            List<Student> assignedStudents = studentRepository.findByFacultyId(faculty.get().getId());
+            for (Student s : assignedStudents) {
+                s.setFaculty(null);
+                studentRepository.save(s);
+            }
+            facultyRepository.delete(faculty.get());
+        }
+
+        // Delete admin record if exists
+        Optional<Admin> admin = adminRepository.findByUserId(id);
+        admin.ifPresent(a -> adminRepository.delete(a));
+
+        userRepository.deleteById(id);
+
+        return "User Deleted Successfully";
+    }
+
+    // =========================================
+    // UPDATE USER
+    // =========================================
+
+    public User updateUser(Long id, User updatedUser) {
+
+        User user = userRepository
+                .findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "User not found"
+                ));
+
+        user.setFullName(updatedUser.getFullName());
+        user.setEmail(updatedUser.getEmail());
+
+        if (updatedUser.getPassword() != null && !updatedUser.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(updatedUser.getPassword()));
+        }
+
+        user.setRole(updatedUser.getRole());
+        user.setUsername(updatedUser.getUsername());
+
+        User updated = userRepository.save(user);
+
+        saveAuditLog(
+                "User Updated",
+                "Updated user: " + user.getFullName(),
+                updated.getId()
+        );
+
+        return updated;
+    }
+
+    // =========================================
+    // UPDATE USER WITH PROFILE FIELDS (from admin edit)
+    // =========================================
+    public User updateUserWithProfile(Long id, java.util.Map<String, Object> body) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        if (body.containsKey("fullName")) user.setFullName((String) body.get("fullName"));
+        if (body.containsKey("email")) user.setEmail((String) body.get("email"));
+        if (body.containsKey("role")) user.setRole((String) body.get("role"));
+
+        User updated = userRepository.save(user);
+
+        // Update student-specific fields
+        if ("STUDENT".equals(updated.getRole())) {
+            Student student = studentRepository.findByUserId(updated.getId()).orElse(null);
+            if (student != null) {
+                if (body.containsKey("department")) student.setDepartment((String) body.get("department"));
+                if (body.containsKey("section")) student.setSection((String) body.get("section"));
+                if (body.containsKey("studentCode")) student.setStudentCode((String) body.get("studentCode"));
+                if (body.containsKey("enrollmentYear")) student.setEnrollmentYear((String) body.get("enrollmentYear"));
+                studentRepository.save(student);
+            }
+        }
+
+        // Update faculty-specific fields
+        if ("FACULTY".equals(updated.getRole())) {
+            Faculty faculty = facultyRepository.findByUserId(updated.getId()).orElse(null);
+            if (faculty != null) {
+                if (body.containsKey("department")) faculty.setDepartment((String) body.get("department"));
+                if (body.containsKey("section")) faculty.setSection((String) body.get("section"));
+                if (body.containsKey("facultyCode")) faculty.setFacultyCode((String) body.get("facultyCode"));
+                if (body.containsKey("joiningYear")) faculty.setJoiningYear((String) body.get("joiningYear"));
+                facultyRepository.save(faculty);
+            }
+        }
+
+        saveAuditLog("User Updated", "Updated user: " + updated.getFullName(), updated.getId());
+        return updated;
+    }
+
+    // =========================================
+    // SEARCH USERS
+    // =========================================
+
+    public List<User> searchUsers(String name) {
+        return userRepository.findByFullNameContainingIgnoreCase(name);
+    }
+
+    // =========================================
+    // FILTER USERS BY ROLE
+    // =========================================
+
+    public List<User> getUsersByRole(String role) {
+        return userRepository.findByRole(role);
+    }
+
+    // =========================================
+    // ASSIGN FACULTY
+    // =========================================
+
+    public User assignFaculty(Long id, String subject) {
+
+        User user = userRepository.findById(id).orElseThrow();
+
+        user.setAssignedSubject(subject);
+
+        User updated = userRepository.save(user);
+
+        saveAuditLog(
+                "Faculty Assigned",
+                "Assigned faculty to subject: " + subject,
+                updated.getId()
+        );
+
+        return updated;
+    }
+
+    // =========================================
+    // ADMIN SETTINGS
+    // =========================================
+
+    public AdminSettings saveSettings(AdminSettings settings) {
+
+        AdminSettings saved = adminSettingsRepository.save(settings);
+
+        saveAuditLog(
+                "Settings Updated",
+                "Updated admin settings",
+                null
+        );
+
+        return saved;
+    }
+
+    public List<AdminSettings> getAllSettings() {
+        return adminSettingsRepository.findAll();
+    }
+
+    // =========================================
+    // ADMIN ANALYTICS
+    // =========================================
+
+    public AdminAnalyticsDTO getAdminAnalytics() {
+
+        AdminAnalyticsDTO dto = new AdminAnalyticsDTO();
+
+        dto.setTotalUsers(userRepository.count());
+
+        dto.setTotalProjects(projectMongoRepository.count());
+
+        List<com.example.demo.entity.ProjectDocument> allProjects = projectMongoRepository.findAll();
+
+        dto.setApprovedProjects(
+                allProjects.stream()
+                        .filter(project -> "APPROVED".equalsIgnoreCase(project.getStatus()))
+                        .count());
+
+        dto.setPendingProjects(
+                allProjects.stream()
+                        .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus()))
+                        .count());
+
+        dto.setTotalCertificates(certificateMongoRepository.count());
+
+        dto.setApprovedCertificates(
+                certificateMongoRepository.findAll().stream()
+                        .filter(certificate -> "APPROVED".equalsIgnoreCase(certificate.getStatus()))
+                        .count());
+
+        dto.setFacultyCount(
+                userRepository.findAll().stream()
+                        .filter(user -> "FACULTY".equalsIgnoreCase(user.getRole()))
+                        .count());
+
+        return dto;
+    }
+
+    // =========================================
+    // NOTIFICATIONS
+    // =========================================
+
+    public NotificationDocument createNotification(NotificationDocument notification) {
+
+        notification.setCreatedAt(LocalDateTime.now());
+        notification.setRead(false);
+
+        return notificationMongoRepository.save(notification);
+    }
+
+    public List<NotificationDocument> getNotifications(Long userId) {
+        return notificationMongoRepository.findByUserId(userId);
+    }
+
+    public NotificationDocument markNotificationAsRead(String id) {
+
+        NotificationDocument notification = notificationMongoRepository.findById(id).orElseThrow();
+
+        notification.setRead(true);
+
+        return notificationMongoRepository.save(notification);
+    }
+
+    public String deleteNotification(String id) {
+        notificationMongoRepository.deleteById(id);
+        return "Notification Deleted";
+    }
+
+    // =========================================
+    // JWT LOGIN (returns AuthResponse)
+    // =========================================
+
+    public AuthResponse login(AuthRequest request) {
+
+        User user = userRepository
+                .findByEmail(request.getEmail())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "Invalid email or password"
+                ));
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid email or password"
+            );
+        }
+
+        String token = jwtUtil.generateToken(user.getEmail(), user.getRole());
+
+        return new AuthResponse(token, user.getId(), user.getRole(), user.getFullName());
+    }
+
+    // =========================================
+    // AUDIT LOG
+    // =========================================
+
+    public void saveAuditLog(String title, String description, Long performedBy) {
+
+        AuditLog log = new AuditLog();
+
+        log.setActionTitle(title);
+        log.setDescription(description);
+
+        if (performedBy != null) {
+            userRepository.findById(performedBy).ifPresent(log::setPerformedBy);
+        }
+
+        log.setCreatedAt(LocalDateTime.now());
+
+        auditLogRepository.save(log);
+    }
+
+    public List<AuditLog> getAllAuditLogs() {
+        return auditLogRepository.findAll();
+    }
+
+    // =========================================
+    // BULK UPLOAD USERS FROM EXCEL
+    // =========================================
+    public java.util.Map<String, Object> bulkRegisterFromExcel(org.springframework.web.multipart.MultipartFile file) {
+        java.util.List<java.util.Map<String, String>> successList = new java.util.ArrayList<>();
+        java.util.List<java.util.Map<String, String>> failureList = new java.util.ArrayList<>();
+
+        try (org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(file.getInputStream())) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheetAt(0);
+
+            // Expect header row: fullName, email, password, role, department, section
+            int rowCount = sheet.getPhysicalNumberOfRows();
+            for (int i = 1; i < rowCount; i++) { // skip header
+                org.apache.poi.ss.usermodel.Row row = sheet.getRow(i);
+                if (row == null) continue;
+
+                String fullName = getCellString(row, 0);
+                String email = getCellString(row, 1);
+                String password = getCellString(row, 2);
+                String role = getCellString(row, 3);
+                String department = getCellString(row, 4);
+                String section = getCellString(row, 5);
+
+                if (fullName.isBlank() || email.isBlank() || password.isBlank()) {
+                    java.util.Map<String, String> fail = new java.util.HashMap<>();
+                    fail.put("row", String.valueOf(i + 1));
+                    fail.put("email", email);
+                    fail.put("reason", "Missing required fields (fullName, email, or password)");
+                    failureList.add(fail);
+                    continue;
+                }
+
+                try {
+                    User user = new User();
+                    user.setFullName(fullName);
+                    user.setEmail(email);
+                    user.setPassword(password);
+                    user.setRole(role.isBlank() ? "STUDENT" : role.toUpperCase());
+
+                    User savedUser = register(user);
+
+                    // Update department and section for student/faculty
+                    if ("STUDENT".equals(savedUser.getRole())) {
+                        Student student = studentRepository.findByUserId(savedUser.getId()).orElse(null);
+                        if (student != null) {
+                            student.setDepartment(department);
+                            student.setSection(section);
+                            studentRepository.save(student);
+                        }
+                    } else if ("FACULTY".equals(savedUser.getRole())) {
+                        Faculty faculty = facultyRepository.findByUserId(savedUser.getId()).orElse(null);
+                        if (faculty != null) {
+                            faculty.setDepartment(department);
+                            facultyRepository.save(faculty);
+                        }
+                    }
+
+                    java.util.Map<String, String> success = new java.util.HashMap<>();
+                    success.put("row", String.valueOf(i + 1));
+                    success.put("email", email);
+                    success.put("fullName", fullName);
+                    successList.add(success);
+
+                } catch (Exception ex) {
+                    java.util.Map<String, String> fail = new java.util.HashMap<>();
+                    fail.put("row", String.valueOf(i + 1));
+                    fail.put("email", email);
+                    fail.put("reason", ex.getMessage());
+                    failureList.add(fail);
+                }
+            }
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to parse Excel file: " + e.getMessage());
+        }
+
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        result.put("totalSuccess", successList.size());
+        result.put("totalFailed", failureList.size());
+        result.put("successes", successList);
+        result.put("failures", failureList);
+        return result;
+    }
+
+    private String getCellString(org.apache.poi.ss.usermodel.Row row, int cellIndex) {
+        org.apache.poi.ss.usermodel.Cell cell = row.getCell(cellIndex);
+        if (cell == null) return "";
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue().trim();
+            case NUMERIC:
+                return String.valueOf((long) cell.getNumericCellValue());
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+            default:
+                return "";
+        }
+    }
+}
