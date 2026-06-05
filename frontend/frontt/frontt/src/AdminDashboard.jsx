@@ -60,6 +60,26 @@ const AdminDashboard = () => {
     fetchAuditLogs();
   }, [token, userId, navigate, fetchAnalytics, fetchAuditLogs]);
 
+  useEffect(() => {
+    const refreshDashboard = () => {
+      fetchAnalytics();
+      fetchAuditLogs();
+    };
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible") refreshDashboard();
+    };
+    const intervalId = setInterval(refreshDashboard, 15000);
+
+    window.addEventListener("focus", refreshDashboard);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", refreshDashboard);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+    };
+  }, [fetchAnalytics, fetchAuditLogs]);
+
   const approvalRate = analytics.totalProjects
     ? Math.round((analytics.approvedProjects / analytics.totalProjects) * 100)
     : 0;

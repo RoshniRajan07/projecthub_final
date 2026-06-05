@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./Login.css";
 
 import {
@@ -21,6 +21,18 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  useEffect(() => {
+    setEmail("");
+    setPassword("");
+    const clearSavedValues = setTimeout(() => {
+      setEmail("");
+      setPassword("");
+    }, 100);
+
+    return () => clearTimeout(clearSavedValues);
+  }, []);
 
   /* LOGIN */
   const handleLogin = async () => {
@@ -52,14 +64,17 @@ export default function Login() {
 
       // Navigate based on role from backend
       const userRole = data.role.toLowerCase();
+      setShowSuccess(true);
 
-      if (userRole === "student") {
-        navigate("/dashboard");
-      } else if (userRole === "faculty") {
-        navigate("/faculty-dashboard");
-      } else if (userRole === "admin") {
-        navigate("/admin-dashboard");
-      }
+      setTimeout(() => {
+        if (userRole === "student") {
+          navigate("/dashboard");
+        } else if (userRole === "faculty") {
+          navigate("/faculty-dashboard");
+        } else if (userRole === "admin") {
+          navigate("/admin-dashboard");
+        }
+      }, 900);
 
     } catch (err) {
       setError("Server not reachable. Please try again.");
@@ -71,6 +86,11 @@ export default function Login() {
   return (
 
     <div className="login-page">
+      {showSuccess && (
+        <div className="login-success-popup" role="status">
+          Logged in successfully
+        </div>
+      )}
 
       {/* LEFT SIDE */}
       <div className="login-left">
@@ -131,7 +151,7 @@ export default function Login() {
         </div>
 
         {/* FORM */}
-        <div className="form">
+        <form className="form" autoComplete="off" onSubmit={(e) => { e.preventDefault(); handleLogin(); }}>
 
           <label>Email</label>
           <input
@@ -139,7 +159,10 @@ export default function Login() {
             placeholder="you@university.edu"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoComplete="off"
+            autoComplete="new-password"
+            name="projecthub-login-email"
+            readOnly
+            onFocus={(e) => { e.currentTarget.readOnly = false; }}
           />
 
           <label>Password</label>
@@ -150,7 +173,9 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
-              name="password-field"
+              name="projecthub-login-passcode"
+              readOnly
+              onFocus={(e) => { e.currentTarget.readOnly = false; }}
             />
             <span className="eye-icon" onClick={() => setShowPassword(!showPassword)}>
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -162,9 +187,8 @@ export default function Login() {
 
           {/* LOGIN BUTTON */}
           <button
-            type="button"
+            type="submit"
             className="login-btn"
-            onClick={handleLogin}
             disabled={loading}
           >
             {loading ? "Signing in..." : `Sign In as ${role}`}
@@ -174,7 +198,7 @@ export default function Login() {
             Use your registered email and password to sign in.
           </p>
 
-        </div>
+        </form>
 
       </div>
 

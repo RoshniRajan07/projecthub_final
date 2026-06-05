@@ -65,6 +65,31 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [token, userId, navigate, fetchDashboardData]);
 
+  useEffect(() => {
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible") fetchDashboardData();
+    };
+    const intervalId = setInterval(fetchDashboardData, 15000);
+
+    window.addEventListener("focus", fetchDashboardData);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", fetchDashboardData);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+    };
+  }, [fetchDashboardData]);
+
+  const projectStats = projects.length > 0
+    ? {
+        totalProjects: projects.length,
+        approvedProjects: projects.filter(p => p.status?.toLowerCase() === "approved").length,
+        pendingProjects: projects.filter(p => p.status?.toLowerCase() === "pending").length,
+        rejectedProjects: projects.filter(p => p.status?.toLowerCase() === "rejected").length
+      }
+    : analytics;
+
   const verifiedCerts = certificates.filter(c => c.status?.toLowerCase() === "approved").length;
 
   const handleExportPDF = () => {
@@ -84,11 +109,11 @@ export default function Dashboard() {
       startY: 57,
       head: [["Category", "Value"]],
       body: [
-        ["Total Submissions", analytics.totalProjects],
-        ["Approved Projects", analytics.approvedProjects],
+        ["Total Submissions", projectStats.totalProjects],
+        ["Approved Projects", projectStats.approvedProjects],
         ["Certificates", certificates.length],
-        ["Pending Review", analytics.pendingProjects],
-        ["Rejected", analytics.rejectedProjects]
+        ["Pending Review", projectStats.pendingProjects],
+        ["Rejected", projectStats.rejectedProjects]
       ]
     });
 
@@ -189,7 +214,7 @@ export default function Dashboard() {
               <span>Total Submissions</span>
               <FileText className="icon gold" />
             </div>
-            <h2>{analytics.totalProjects}</h2>
+            <h2>{projectStats.totalProjects}</h2>
           </div>
 
           <div className="card">
@@ -197,10 +222,10 @@ export default function Dashboard() {
               <span>Approved Projects</span>
               <CheckCircle className="icon green" />
             </div>
-            <h2>{analytics.approvedProjects}</h2>
+            <h2>{projectStats.approvedProjects}</h2>
             <p className="sub">
-              {analytics.totalProjects > 0
-                ? `${Math.round((analytics.approvedProjects / analytics.totalProjects) * 100)}% approval`
+              {projectStats.totalProjects > 0
+                ? `${Math.round((projectStats.approvedProjects / projectStats.totalProjects) * 100)}% approval`
                 : "No submissions yet"}
             </p>
           </div>
@@ -219,7 +244,7 @@ export default function Dashboard() {
               <span>Pending Review</span>
               <Clock className="icon orange" />
             </div>
-            <h2>{analytics.pendingProjects}</h2>
+            <h2>{projectStats.pendingProjects}</h2>
           </div>
         </div>
 
@@ -326,11 +351,11 @@ export default function Dashboard() {
 
             <div className="analytics-cards">
               <div className="analytics-box gold">
-                <h2>{analytics.totalProjects}</h2>
+                <h2>{projectStats.totalProjects}</h2>
                 <p>Total Projects</p>
               </div>
               <div className="analytics-box green">
-                <h2>{analytics.approvedProjects}</h2>
+                <h2>{projectStats.approvedProjects}</h2>
                 <p>Approved</p>
               </div>
               <div className="analytics-box blue">
@@ -338,7 +363,7 @@ export default function Dashboard() {
                 <p>Verified Certs</p>
               </div>
               <div className="analytics-box orange">
-                <h2>{analytics.rejectedProjects}</h2>
+                <h2>{projectStats.rejectedProjects}</h2>
                 <p>Rejected</p>
               </div>
             </div>

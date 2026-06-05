@@ -37,6 +37,22 @@ const FacultyDashboard = () => {
     fetchData();
   }, [token, userId, navigate, fetchData]);
 
+  useEffect(() => {
+    const refreshWhenActive = () => {
+      if (document.visibilityState === "visible") fetchData();
+    };
+    const intervalId = setInterval(fetchData, 15000);
+
+    window.addEventListener("focus", fetchData);
+    document.addEventListener("visibilitychange", refreshWhenActive);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", fetchData);
+      document.removeEventListener("visibilitychange", refreshWhenActive);
+    };
+  }, [fetchData]);
+
   // Counts
   const assignedProjects = projects.length;
   const pendingProjects = projects.filter(p => p.status?.toLowerCase() === "pending").length;

@@ -21,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import ConfirmToast from "./ConfirmToast";
 
 const API = "http://localhost:8081";
+const EMPTY_USER = { fullName: "", email: "", role: "", password: "", department: "", section: "", studentCode: "", enrollmentYear: "", facultyCode: "", joiningYear: "" };
 
 const ManageUsers = () => {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ const ManageUsers = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newUser, setNewUser] = useState({ fullName: "", email: "", role: "", password: "", department: "", section: "", studentCode: "", enrollmentYear: "", facultyCode: "", joiningYear: "" });
+  const [newUser, setNewUser] = useState(EMPTY_USER);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkUploading, setBulkUploading] = useState(false);
@@ -169,7 +170,7 @@ const ManageUsers = () => {
           });
         }
         setShowAddModal(false);
-        setNewUser({ fullName: "", email: "", role: "", password: "", department: "", section: "", studentCode: "", enrollmentYear: "", facultyCode: "", joiningYear: "" });
+        setNewUser(EMPTY_USER);
         fetchUsers();
       } else {
         const err = await res.text();
@@ -261,7 +262,7 @@ const ManageUsers = () => {
             <button className="bulk-upload-btn" onClick={() => { setShowBulkModal(true); setBulkFile(null); setBulkResult(null); }}>
               <Upload size={18} /> Bulk Upload
             </button>
-            <button className="add-user-btn" onClick={() => setShowAddModal(true)}>
+            <button className="add-user-btn" onClick={() => { setNewUser(EMPTY_USER); setShowAddModal(true); }}>
               <UserPlus size={18} /> Add User
             </button>
           </div>
@@ -452,7 +453,15 @@ const ManageUsers = () => {
               </div>
               <div className="form-group">
                 <label>Password *</label>
-                <input type="password" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
+                <input
+                  type="password"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  autoComplete="new-password"
+                  name="projecthub-new-user-passcode"
+                  readOnly
+                  onFocus={(e) => { e.currentTarget.readOnly = false; }}
+                />
               </div>
               <div className="form-group">
                 <label>Role *</label>
@@ -517,7 +526,6 @@ const ManageUsers = () => {
               )}
             </div>
             <div className="modal-footer">
-              <button className="cancel-btn" onClick={() => setShowAddModal(false)}>Cancel</button>
               <button className="save-btn" onClick={handleCreateUser}>Save Changes</button>
             </div>
           </div>

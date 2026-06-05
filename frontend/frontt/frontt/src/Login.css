@@ -21,12 +21,52 @@ body,
 /* MAIN PAGE */
 
 .login-page {
+  position: relative;
+
   width: 100%;
   min-height: 100vh;
 
   display: flex;
 
   background: #f8fafc;
+}
+
+.login-success-popup {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  z-index: 1000;
+
+  transform: translateX(-50%);
+
+  min-width: 240px;
+
+  border-radius: 12px;
+  border: 1px solid #d6ad60;
+  background: #111827;
+  color: #f8fafc;
+
+  padding: 14px 22px;
+
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+
+  box-shadow: 0 12px 30px rgba(17, 24, 39, 0.24);
+
+  animation: loginSuccessPopup 0.2s ease;
+}
+
+@keyframes loginSuccessPopup {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 /* LEFT SIDE */
