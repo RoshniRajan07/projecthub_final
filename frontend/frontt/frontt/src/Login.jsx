@@ -11,6 +11,28 @@ import {
 
 import { useNavigate } from "react-router-dom";
 
+const LOGIN_ENCRYPTION_KEY = "ProjectHubLoginKey2026AESKey1234";
+
+const bytesToBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+
+const encryptLoginPassword = async (plainPassword) => {
+  const key = await window.crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(LOGIN_ENCRYPTION_KEY),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"]
+  );
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await window.crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plainPassword)
+  );
+
+  return `enc:v2:${bytesToBase64(iv)}:${bytesToBase64(new Uint8Array(encrypted))}`;
+};
+
 export default function Login() {
 
   const navigate = useNavigate();
@@ -41,10 +63,11 @@ export default function Login() {
     setLoading(true);
 
     try {
+      const encryptedPassword = await encryptLoginPassword(password);
       const response = await fetch("http://localhost:8081/users/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password: encryptedPassword }),
       });
 
       if (!response.ok) {

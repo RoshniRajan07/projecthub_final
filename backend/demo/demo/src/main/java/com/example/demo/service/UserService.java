@@ -1,9 +1,15 @@
 package com.example.demo.service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,6 +46,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class UserService {
+
+    private static final String ENCRYPTED_PASSWORD_PREFIX = "enc:v2:";
+    private static final String LOGIN_ENCRYPTION_KEY = "ProjectHubLoginKey2026AESKey1234";
 
     @Autowired
     private UserRepository userRepository;
@@ -256,7 +265,9 @@ public class UserService {
                         "Invalid email or password"
                 ));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        String loginPassword = decryptLoginPassword(request.getPassword());
+
+        if (!passwordEncoder.matches(loginPassword, user.getPassword())) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid email or password"
@@ -679,7 +690,9 @@ public class UserService {
                         "Invalid email or password"
                 ));
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        String loginPassword = decryptLoginPassword(request.getPassword());
+
+        if (!passwordEncoder.matches(loginPassword, user.getPassword())) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Invalid email or password"
@@ -713,6 +726,28 @@ public class UserService {
 
     public List<AuditLog> getAllAuditLogs() {
         return auditLogRepository.findAll();
+    }
+
+    private String decryptLoginPassword(String password) {
+        if (password == null || !password.startsWith(ENCRYPTED_PASSWORD_PREFIX)) {
+            return password;
+        }
+
+        try {
+            String encryptedPayload = password.substring(ENCRYPTED_PASSWORD_PREFIX.length());
+            String[] parts = encryptedPayload.split(":", 2);
+            byte[] iv = Base64.getDecoder().decode(parts[0]);
+            byte[] encryptedBytes = Base64.getDecoder().decode(parts[1]);
+            SecretKeySpec key = new SecretKeySpec(
+                    LOGIN_ENCRYPTION_KEY.getBytes(StandardCharsets.UTF_8),
+                    "AES");
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
+
+            return new String(cipher.doFinal(encryptedBytes), StandardCharsets.UTF_8);
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+        }
     }
 
     // =========================================

@@ -16,8 +16,19 @@ import {
 export default function Home() {
   const navigate = useNavigate();
 
+  const trackLandingClick = (action) => {
+    fetch(`http://localhost:8081/landing/click?action=${encodeURIComponent(action)}`)
+      .catch(() => {});
+  };
+
   const scrollToSection = (id) => {
+    trackLandingClick(id);
     document.getElementById(id).scrollIntoView({ behavior: "smooth" });
+  };
+
+  const goToLogin = (action) => {
+    trackLandingClick(action);
+    navigate("/login");
   };
 
   return (
@@ -37,7 +48,7 @@ export default function Home() {
         </ul>
 
         {/* ✅ NAVIGATE TO LOGIN */}
-        <button className="signin" onClick={() => navigate("/login")}>
+        <button className="signin" onClick={() => goToLogin("sign-in")}>
           Sign In
         </button>
       </div>
@@ -56,7 +67,7 @@ export default function Home() {
 
         <div className="btn-group">
           {/* ✅ NAVIGATE TO LOGIN */}
-          <button className="btn-primary" onClick={() => navigate("/login")}>
+          <button className="btn-primary" onClick={() => goToLogin("get-started")}>
             Get Started →
           </button>
 

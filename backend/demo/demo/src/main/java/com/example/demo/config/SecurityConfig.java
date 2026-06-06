@@ -70,6 +70,8 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.GET,
 
+                        "/landing/click",
+
                         "/projects/download/**")
 
                 .permitAll()

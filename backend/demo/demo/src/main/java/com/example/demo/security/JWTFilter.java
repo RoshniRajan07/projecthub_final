@@ -50,6 +50,10 @@ extends OncePerRequestFilter {
 
             ||
 
+            (method.equals("GET") && path.equals("/landing/click"))
+
+            ||
+
             // OPTIONS (CORS preflight)
             method.equals("OPTIONS")
 

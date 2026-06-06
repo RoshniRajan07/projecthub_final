@@ -76,7 +76,35 @@ export default function Dashboard() {
 
   const verifiedCerts = certificates.filter(c => c.status?.toLowerCase() === "approved").length;
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
+    const headers = { Authorization: `Bearer ${token}` };
+    let exportAnalytics = projectStats;
+    let exportProjects = projects;
+    let exportCertificates = certificates;
+
+    try {
+      const [analyticsRes, projectsRes, certsRes] = await Promise.all([
+        fetch(`${API}/projects/analytics/student/${userId}`, { headers }),
+        fetch(`${API}/projects/mongo/student/${userId}`, { headers }),
+        fetch(`${API}/certificates/student/${userId}`, { headers })
+      ]);
+
+      if (analyticsRes.ok) exportAnalytics = await analyticsRes.json();
+      if (projectsRes.ok) exportProjects = await projectsRes.json();
+      if (certsRes.ok) exportCertificates = await certsRes.json();
+    } catch (error) {
+      console.error("Export data fetch error:", error);
+    }
+
+    if (exportProjects.length > 0) {
+      exportAnalytics = {
+        totalProjects: exportProjects.length,
+        approvedProjects: exportProjects.filter(p => p.status?.toLowerCase() === "approved").length,
+        pendingProjects: exportProjects.filter(p => p.status?.toLowerCase() === "pending").length,
+        rejectedProjects: exportProjects.filter(p => p.status?.toLowerCase() === "rejected").length
+      };
+    }
+
     const doc = new jsPDF();
 
     doc.setFontSize(20);
@@ -93,22 +121,22 @@ export default function Dashboard() {
       startY: 57,
       head: [["Category", "Value"]],
       body: [
-        ["Total Submissions", projectStats.totalProjects],
-        ["Approved Projects", projectStats.approvedProjects],
-        ["Certificates", certificates.length],
-        ["Pending Review", projectStats.pendingProjects],
-        ["Rejected", projectStats.rejectedProjects]
+        ["Total Submissions", exportAnalytics.totalProjects],
+        ["Approved Projects", exportAnalytics.approvedProjects],
+        ["Certificates", exportCertificates.length],
+        ["Pending Review", exportAnalytics.pendingProjects],
+        ["Rejected", exportAnalytics.rejectedProjects]
       ]
     });
 
-    if (projects.length > 0) {
+    if (exportProjects.length > 0) {
       doc.setFontSize(15);
       doc.text("Recent Submissions", 14, doc.lastAutoTable.finalY + 15);
 
       autoTable(doc, {
         startY: doc.lastAutoTable.finalY + 20,
         head: [["Project", "Technology", "Status", "Date"]],
-        body: projects.slice(0, 10).map(p => [
+        body: exportProjects.slice(0, 10).map(p => [
           p.title,
           p.technology,
           p.status,
