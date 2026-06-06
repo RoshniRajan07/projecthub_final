@@ -56,10 +56,21 @@ const ViewSubmissions = () => {
         fetch(`${API}/admin/projects`, { headers }),
         fetch(`${API}/admin/certificates`, { headers })
       ]);
-      if (projRes.ok) setProjects(await projRes.json());
-      if (certRes.ok) setCertificates(await certRes.json());
+      let projectData = [];
+      let certificateData = [];
+      if (projRes.ok) {
+        projectData = await projRes.json();
+        setProjects(projectData);
+      }
+      if (certRes.ok) {
+        certificateData = await certRes.json();
+        setCertificates(certificateData);
+      }
+      setLoading(false);
+      return { projectData, certificateData };
     } catch (error) { console.error("Fetch error:", error); }
     setLoading(false);
+    return { projectData: [], certificateData: [] };
   }, [token]);
 
   useEffect(() => {
@@ -120,7 +131,38 @@ const ViewSubmissions = () => {
   const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
   const paginated = sorted.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const handleLogout = async () => {
+    await fetchData();
+    localStorage.clear();
+    navigate("/");
+  };
+
+  const refreshAndNavigate = async (path) => {
+    await fetchData();
+    navigate(path);
+  };
+
+  const refreshAndSet = async (setter, value) => {
+    await fetchData();
+    setter(value);
+  };
+
+  const refreshAndPage = async (updater) => {
+    await fetchData();
+    setCurrentPage(updater);
+  };
+
+  const openViewItem = async (item) => {
+    const latest = await fetchData();
+    const source = item.type === "Project" ? latest.projectData : latest.certificateData;
+    const latestItem = source.find((entry) => entry.id === item.id);
+    setViewItem(latestItem ? {
+      ...item,
+      ...latestItem,
+      type: item.type,
+      submittedDate: item.type === "Certificate" ? latestItem.submittedDate || latestItem.uploadDate : latestItem.submittedDate,
+    } : item);
+  };
 
   if (loading) {
     return <div className="vs-page"><p style={{ padding: "2rem" }}>Loading...</p></div>;
@@ -137,22 +179,22 @@ const ViewSubmissions = () => {
             <h2>ProjectHub<span>+</span></h2>
           </div>
           <div className="menu">
-            <div className="menu-item" onClick={() => navigate("/admin-dashboard")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-dashboard")}>
               <LayoutDashboard size={20} /><span>Dashboard</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/manage-users")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/manage-users")}>
               <Users size={20} /><span>Manage Users</span>
             </div>
-            <div className="menu-item active">
+            <div className="menu-item active" onClick={fetchData}>
               <ClipboardList size={20} /><span>View Submissions</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-settings")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-settings")}>
               <Settings size={20} /><span>Settings</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-profile")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-profile")}>
               <User size={20} /><span>Profile</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-notifications")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-notifications")}>
               <Bell size={20} /><span>Notifications</span>
             </div>
           </div>
@@ -184,39 +226,39 @@ const ViewSubmissions = () => {
           </div>
 
           <div className="vs-dropdown-wrapper" ref={typeRef}>
-            <div className="vs-filter-dropdown" onClick={() => { setTypeOpen(!typeOpen); setDeptOpen(false); setStatusOpen(false); }}>
+            <div className="vs-filter-dropdown" onClick={() => { fetchData(); setTypeOpen(!typeOpen); setDeptOpen(false); setStatusOpen(false); }}>
               <span>{selectedType}</span><ChevronDown size={18} />
             </div>
             {typeOpen && (
               <div className="vs-dropdown-menu">
                 {["All", "Project", "Certificate"].map(item => (
-                  <div key={item} className={selectedType === item ? "vs-dropdown-item active" : "vs-dropdown-item"} onClick={() => { setSelectedType(item); setTypeOpen(false); }}>{item}</div>
+                  <div key={item} className={selectedType === item ? "vs-dropdown-item active" : "vs-dropdown-item"} onClick={() => { refreshAndSet(setSelectedType, item); setTypeOpen(false); }}>{item}</div>
                 ))}
               </div>
             )}
           </div>
 
           <div className="vs-dropdown-wrapper" ref={deptRef}>
-            <div className="vs-filter-dropdown" onClick={() => { setDeptOpen(!deptOpen); setTypeOpen(false); setStatusOpen(false); }}>
+            <div className="vs-filter-dropdown" onClick={() => { fetchData(); setDeptOpen(!deptOpen); setTypeOpen(false); setStatusOpen(false); }}>
               <span>{selectedDepartment}</span><ChevronDown size={18} />
             </div>
             {deptOpen && (
               <div className="vs-dropdown-menu">
                 {["All Departments", "CSE", "IT", "ECE", "AIDS", "MECH"].map(item => (
-                  <div key={item} className={selectedDepartment === item ? "vs-dropdown-item active" : "vs-dropdown-item"} onClick={() => { setSelectedDepartment(item); setDeptOpen(false); }}>{item}</div>
+                  <div key={item} className={selectedDepartment === item ? "vs-dropdown-item active" : "vs-dropdown-item"} onClick={() => { refreshAndSet(setSelectedDepartment, item); setDeptOpen(false); }}>{item}</div>
                 ))}
               </div>
             )}
           </div>
 
           <div className="vs-dropdown-wrapper" ref={statusRef}>
-            <div className="vs-filter-dropdown" onClick={() => { setStatusOpen(!statusOpen); setTypeOpen(false); setDeptOpen(false); }}>
+            <div className="vs-filter-dropdown" onClick={() => { fetchData(); setStatusOpen(!statusOpen); setTypeOpen(false); setDeptOpen(false); }}>
               <span>{selectedStatus}</span><ChevronDown size={18} />
             </div>
             {statusOpen && (
               <div className="vs-dropdown-menu">
                 {["All Status", "Pending", "Approved", "Rejected", "Resubmitted"].map(item => (
-                  <div key={item} className={selectedStatus === item ? "vs-dropdown-item active" : "vs-dropdown-item"} onClick={() => { setSelectedStatus(item); setStatusOpen(false); }}>{item}</div>
+                  <div key={item} className={selectedStatus === item ? "vs-dropdown-item active" : "vs-dropdown-item"} onClick={() => { refreshAndSet(setSelectedStatus, item); setStatusOpen(false); }}>{item}</div>
                 ))}
               </div>
             )}
@@ -267,7 +309,7 @@ const ViewSubmissions = () => {
                     </td>
                     <td>{item.submittedDate ? new Date(item.submittedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"}</td>
                     <td>
-                      <button className="vs-view-btn" onClick={() => setViewItem(item)}>
+                      <button className="vs-view-btn" onClick={() => openViewItem(item)}>
                         <Eye size={16} /> View
                       </button>
                     </td>
@@ -281,15 +323,15 @@ const ViewSubmissions = () => {
         {/* PAGINATION */}
         {totalPages > 1 && (
           <div className="vs-pagination">
-            <button className="vs-page-btn" onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1}>
+            <button className="vs-page-btn" onClick={() => refreshAndPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1}>
               <ChevronLeft size={18} /> Previous
             </button>
             <div className="vs-page-numbers">
               {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button key={page} className={currentPage === page ? "vs-page-number active" : "vs-page-number"} onClick={() => setCurrentPage(page)}>{page}</button>
+                <button key={page} className={currentPage === page ? "vs-page-number active" : "vs-page-number"} onClick={() => refreshAndPage(page)}>{page}</button>
               ))}
             </div>
-            <button className="vs-page-btn" onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}>
+            <button className="vs-page-btn" onClick={() => refreshAndPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}>
               Next <ChevronRight size={18} />
             </button>
           </div>
@@ -300,7 +342,7 @@ const ViewSubmissions = () => {
       {viewItem && (
         <div className="vs-modal-overlay">
           <div className="vs-modal">
-            <button className="vs-close-btn" onClick={() => setViewItem(null)}><X size={24} /></button>
+            <button className="vs-close-btn" onClick={async () => { await fetchData(); setViewItem(null); }}><X size={24} /></button>
             <h2>{viewItem.title}</h2>
             <span className={viewItem.type === "Project" ? "vs-type-project" : "vs-type-cert"}>{viewItem.type}</span>
 

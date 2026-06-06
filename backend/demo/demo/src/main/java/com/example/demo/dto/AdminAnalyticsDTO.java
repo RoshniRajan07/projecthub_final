@@ -14,6 +14,8 @@ public class AdminAnalyticsDTO {
 
     private Long approvedCertificates;
 
+    private Long pendingCertificates;
+
     private Long facultyCount;
 
     public Long getTotalUsers() {
@@ -80,6 +82,14 @@ public class AdminAnalyticsDTO {
 
         this.approvedCertificates =
                 approvedCertificates;
+    }
+
+    public Long getPendingCertificates() {
+        return pendingCertificates;
+    }
+
+    public void setPendingCertificates(Long pendingCertificates) {
+        this.pendingCertificates = pendingCertificates;
     }
 
     public Long getFacultyCount() {

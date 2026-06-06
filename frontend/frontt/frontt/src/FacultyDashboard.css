@@ -447,6 +447,31 @@
   font-weight:600;
 }
 
+.resubmit-badge,
+.approved-badge,
+.rejected-badge{
+  padding:6px 14px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:600;
+  text-transform:capitalize;
+}
+
+.resubmit-badge{
+  background:#e0e7ff;
+  color:#4f46e5;
+}
+
+.approved-badge{
+  background:#dcfce7;
+  color:#16a34a;
+}
+
+.rejected-badge{
+  background:#fee2e2;
+  color:#dc2626;
+}
+
 .right-review span{
   color:#6b7280;
 

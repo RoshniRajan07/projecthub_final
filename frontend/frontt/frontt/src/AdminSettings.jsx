@@ -46,8 +46,13 @@ const AdminSettings = () => {
       const res = await fetch(`${API}/deadline-rules`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setDeadlineRules(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setDeadlineRules(data);
+        return data;
+      }
     } catch (error) { console.error("Deadline rules fetch error:", error); }
+    return [];
   }, [token]);
 
   const fetchAuditLogs = useCallback(async () => {
@@ -58,8 +63,10 @@ const AdminSettings = () => {
       if (res.ok) {
         const data = await res.json();
         setAuditLogs(data.slice(-10).reverse());
+        return data;
       }
     } catch (error) { console.error("Audit logs fetch error:", error); }
+    return [];
   }, [token]);
 
   const fetchSettings = useCallback(async () => {
@@ -77,8 +84,10 @@ const AdminSettings = () => {
             allowedFileTypes: data[0].allowedFileTypes || "PDF, ZIP, DOC, DOCX"
           });
         }
+        return data;
       }
     } catch (error) { console.error("Settings fetch error:", error); }
+    return [];
   }, [token]);
 
   const fetchFaculty = useCallback(async () => {
@@ -86,8 +95,13 @@ const AdminSettings = () => {
       const res = await fetch(`${API}/users/filter/role?role=FACULTY`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setFaculty(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setFaculty(data);
+        return data;
+      }
     } catch (error) { console.error("Faculty fetch error:", error); }
+    return [];
   }, [token]);
 
   useEffect(() => {
@@ -116,7 +130,7 @@ const AdminSettings = () => {
         })
       });
       if (res.ok) {
-        fetchDeadlineRules();
+        await fetchDeadlineRules();
         setDeadlineForm({ ...deadlineForm, deadline: "", resubmissions: 3 });
       }
     } catch (error) { console.error("Save deadline error:", error); }
@@ -134,6 +148,7 @@ const AdminSettings = () => {
           allowedFileTypes: settings.allowedFileTypes
         })
       });
+      if (res.ok) await fetchSettings();
       if (res.ok) alert("Settings saved ✅");
       else alert("Failed to save settings");
     } catch (error) { console.error("Save settings error:", error); }
@@ -149,12 +164,26 @@ const AdminSettings = () => {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (res.ok) await fetchFaculty();
       if (res.ok) alert("Faculty assigned ✅");
       else alert("Failed to assign faculty");
     } catch (error) { console.error("Assign faculty error:", error); }
   };
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const refreshSettingsPage = async () => {
+    await Promise.all([fetchDeadlineRules(), fetchAuditLogs(), fetchSettings(), fetchFaculty()]);
+  };
+
+  const refreshAndNavigate = async (path) => {
+    await refreshSettingsPage();
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    await refreshSettingsPage();
+    localStorage.clear();
+    navigate("/");
+  };
 
   const formatDeadline = (value) => {
     if (!value) return "—";
@@ -185,22 +214,22 @@ const AdminSettings = () => {
             <h2>ProjectHub<span>+</span></h2>
           </div>
           <div className="menu">
-            <div className="menu-item" onClick={() => navigate("/admin-dashboard")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-dashboard")}>
               <LayoutDashboard size={20} /><span>Dashboard</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/manage-users")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/manage-users")}>
               <Users size={20} /><span>Manage Users</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/view-submissions")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/view-submissions")}>
               <FileText size={20} /><span>View Submissions</span>
             </div>
-            <div className="menu-item active">
+            <div className="menu-item active" onClick={refreshSettingsPage}>
               <Settings size={20} /><span>Settings</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-profile")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-profile")}>
               <User size={20} /><span>Profile</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-notifications")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-notifications")}>
               <Bell size={20} /><span>Notifications</span>
             </div>
           </div>
@@ -259,7 +288,7 @@ const AdminSettings = () => {
             <div className="form-group">
               <label>Deadline Type</label>
               <div className="select-box">
-                <select value={deadlineForm.type} onChange={(e) => setDeadlineForm({ ...deadlineForm, type: e.target.value, name: e.target.value === "Project" ? projectSubjects[0] : certificateCategories[0] })}>
+                <select value={deadlineForm.type} onChange={async (e) => { await fetchDeadlineRules(); setDeadlineForm({ ...deadlineForm, type: e.target.value, name: e.target.value === "Project" ? projectSubjects[0] : certificateCategories[0] }); }}>
                   <option>Project</option>
                   <option>Certificate</option>
                 </select>
@@ -270,7 +299,7 @@ const AdminSettings = () => {
             <div className="form-group">
               <label>{deadlineForm.type === "Project" ? "Subject" : "Certificate Category"}</label>
               <div className="select-box">
-                <select value={deadlineForm.name} onChange={(e) => setDeadlineForm({ ...deadlineForm, name: e.target.value })}>
+                <select value={deadlineForm.name} onChange={async (e) => { await fetchDeadlineRules(); setDeadlineForm({ ...deadlineForm, name: e.target.value }); }}>
                   {deadlineOptions.map((item) => (<option key={item}>{item}</option>))}
                 </select>
                 <ChevronDown size={20} />
@@ -281,7 +310,7 @@ const AdminSettings = () => {
               <label>Submission Deadline</label>
               <div className="date-input-wrapper">
                 <input type="date" id="deadlineDateInput" value={deadlineForm.deadline} onChange={(e) => setDeadlineForm({ ...deadlineForm, deadline: e.target.value })} />
-                <Calendar size={18} className="date-icon" onClick={() => document.getElementById('deadlineDateInput').showPicker()} />
+                <Calendar size={18} className="date-icon" onClick={async () => { await fetchDeadlineRules(); document.getElementById('deadlineDateInput').showPicker(); }} />
               </div>
             </div>
 
@@ -330,7 +359,7 @@ const AdminSettings = () => {
             <div className="form-group">
               <label>Faculty Member</label>
               <div className="select-box">
-                <select value={assignForm.facultyId} onChange={(e) => setAssignForm({ ...assignForm, facultyId: e.target.value })}>
+                <select value={assignForm.facultyId} onChange={async (e) => { await fetchFaculty(); setAssignForm({ ...assignForm, facultyId: e.target.value }); }}>
                   <option value="">Select faculty</option>
                   {faculty.map((f) => (<option key={f.id} value={f.id}>{f.fullName}</option>))}
                 </select>
@@ -340,7 +369,7 @@ const AdminSettings = () => {
             <div className="form-group">
               <label>Subject / Group</label>
               <div className="select-box">
-                <select value={assignForm.subject} onChange={(e) => setAssignForm({ ...assignForm, subject: e.target.value })}>
+                <select value={assignForm.subject} onChange={async (e) => { await fetchFaculty(); setAssignForm({ ...assignForm, subject: e.target.value }); }}>
                   <option value="">Select subject</option>
                   {projectSubjects.map((s) => (<option key={s} value={s}>{s}</option>))}
                 </select>

@@ -329,6 +329,12 @@ h1,h2,h3,h4,h5,h6,p{
   font-size:12px;
   color:#9ca3af;
 }
+.project-left .deadline-meta{
+  margin-top:4px;
+  color:#d6ad60;
+  font-size:12px;
+  font-weight:600;
+}
 
 /* RIGHT */
 .project-right{

@@ -34,9 +34,15 @@ const FacultyNotifications = () => {
       const res = await fetch(`${API}/users/notifications/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setNotifications(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data);
+        setLoading(false);
+        return data;
+      }
     } catch (error) { console.error("Notifications fetch error:", error); }
     setLoading(false);
+    return [];
   }, [token, userId]);
 
   useEffect(() => {
@@ -65,11 +71,13 @@ const FacultyNotifications = () => {
     }
   };
 
-  const handleDelete = (item) => {
+  const handleDelete = async (item) => {
+    const latest = await fetchNotifications();
+    const latestItem = latest.find((entry) => entry.id === item.id) || item;
     setDeleteConfirm({
       title: "Delete notification?",
-      message: `Delete "${item.title}"? This cannot be undone.`,
-      items: [item],
+      message: `Delete "${latestItem.title}"? This cannot be undone.`,
+      items: [latestItem],
     });
   };
 
@@ -88,7 +96,16 @@ const FacultyNotifications = () => {
     } catch (error) { console.error("Mark read error:", error); }
   };
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const refreshAndNavigate = async (path) => {
+    await fetchNotifications();
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    await fetchNotifications();
+    localStorage.clear();
+    navigate("/");
+  };
 
   const formatTime = (createdAt) => {
     if (!createdAt) return "";
@@ -124,19 +141,19 @@ const FacultyNotifications = () => {
           </div>
 
           <div className="menu">
-            <div className="menu-item" onClick={() => navigate("/faculty-dashboard")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/faculty-dashboard")}>
               <LayoutDashboard size={20} /><span>Dashboard</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/review-projects")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/review-projects")}>
               <BookOpen size={20} /><span>Review Projects</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/verify-certificates")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/verify-certificates")}>
               <ShieldCheck size={20} /><span>Verify Certificates</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/faculty-profile")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/faculty-profile")}>
               <User size={20} /><span>Profile</span>
             </div>
-            <div className="menu-item active">
+            <div className="menu-item active" onClick={fetchNotifications}>
               <Bell size={20} /><span>Notifications</span>
             </div>
           </div>
@@ -205,7 +222,7 @@ const FacultyNotifications = () => {
         title={deleteConfirm?.title}
         message={deleteConfirm?.message}
         busy={deleting}
-        onCancel={() => setDeleteConfirm(null)}
+        onCancel={async () => { await fetchNotifications(); setDeleteConfirm(null); }}
         onConfirm={() => deleteNotifications(deleteConfirm.items)}
       />
     </div>

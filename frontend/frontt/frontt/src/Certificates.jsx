@@ -29,6 +29,7 @@ const Certificates = () => {
   const [facultyList, setFacultyList] = useState([]);
   const [deadlineRules, setDeadlineRules] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const [maxResubmissions] = useState(3);
 
   const [certificateData, setCertificateData] = useState({
     title: "", organization: "", category: "", issueDate: "", faculty: "", file: null,
@@ -41,8 +42,13 @@ const Certificates = () => {
       const res = await fetch(`${API}/certificates/student/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setCertificateList(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setCertificateList(data);
+        return data;
+      }
     } catch (error) { console.error("Fetch certificates error:", error); }
+    return [];
   }, [token, userId]);
 
   const fetchFaculty = useCallback(async () => {
@@ -50,8 +56,13 @@ const Certificates = () => {
       const res = await fetch(`${API}/users/filter/role?role=FACULTY`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setFacultyList(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setFacultyList(data);
+        return data;
+      }
     } catch (error) { console.error("Fetch faculty error:", error); }
+    return [];
   }, [token]);
 
   const fetchDeadlineRules = useCallback(async () => {
@@ -59,8 +70,13 @@ const Certificates = () => {
       const res = await fetch(`${API}/deadline-rules/type/Certificate`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setDeadlineRules(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setDeadlineRules(data);
+        return data;
+      }
     } catch (error) { console.error("Fetch deadlines error:", error); }
+    return [];
   }, [token]);
 
   useEffect(() => {
@@ -90,6 +106,14 @@ const Certificates = () => {
 
   const formatDeadline = (value) =>
     new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const getCertificateLastDate = (item) =>
+    item.lastSubmissionDate ||
+    deadlineRules.find((rule) =>
+      rule.type?.toLowerCase() === "certificate" &&
+      rule.status?.toLowerCase() === "active" &&
+      rule.name?.trim().toLowerCase() === item.category?.trim().toLowerCase()
+    )?.deadline;
+  const formatLastDate = (item) => getCertificateLastDate(item) ? formatDeadline(getCertificateLastDate(item)) : "Not set";
 
   const getDaysLeft = (value) => {
     const today = new Date();
@@ -100,6 +124,16 @@ const Certificates = () => {
   };
 
   const todayISO = () => new Date().toISOString().slice(0, 10);
+
+  const getResubmissionLimit = (cert) => {
+    const rule = deadlineRules.find((deadline) =>
+      deadline.name === cert.category && deadline.status === "Active"
+    );
+    const ruleLimit = rule?.resubmissions !== undefined ? Number(rule.resubmissions) : maxResubmissions;
+    return Math.min(ruleLimit, maxResubmissions);
+  };
+
+  const canResubmit = (cert) => Math.max(0, (cert.version || 1) - 1) < getResubmissionLimit(cert);
 
   const notifyFaculty = async (facultyId, certificateName, mode) => {
     if (!facultyId) return;
@@ -129,38 +163,50 @@ const Certificates = () => {
     if (selectedFile) setCertificateData({ ...certificateData, file: selectedFile });
   };
 
-  const openUploadModal = () => {
+  const getLatestCertificate = async (id) => {
+    const latest = await fetchCertificates();
+    return latest.find((item) => item.id === id) || certificateList.find((item) => item.id === id);
+  };
+
+  const openUploadModal = async () => {
+    await Promise.all([fetchFaculty(), fetchDeadlineRules()]);
     setCertificateData({ title: "", organization: "", category: "", issueDate: "", faculty: "", file: null });
     setModalMode("upload");
     setEditingCert(null);
     setShowModal(true);
   };
 
-  const handleOpenEdit = (cert) => {
+  const handleOpenEdit = async (cert) => {
+    const latestCert = await getLatestCertificate(cert.id) || cert;
     setCertificateData({
-      title: cert.title || "",
-      organization: cert.organization || "",
-      category: cert.category || "",
-      issueDate: cert.issueDate || "",
-      faculty: cert.facultyId?.toString() || "",
+      title: latestCert.title || "",
+      organization: latestCert.organization || "",
+      category: latestCert.category || "",
+      issueDate: latestCert.issueDate || "",
+      faculty: latestCert.facultyId?.toString() || "",
       file: null,
     });
     setModalMode("edit");
-    setEditingCert(cert);
+    setEditingCert(latestCert);
     setShowModal(true);
   };
 
   const handleOpenResubmit = async (cert) => {
+    const latestCert = await getLatestCertificate(cert.id) || cert;
+    if (!canResubmit(latestCert)) {
+      alert(`Maximum resubmission limit reached (${getResubmissionLimit(latestCert)}).`);
+      return;
+    }
     setCertificateData({
-      title: cert.title || "",
-      organization: cert.organization || "",
-      category: cert.category || "",
-      issueDate: cert.issueDate || "",
-      faculty: cert.facultyId?.toString() || "",
+      title: latestCert.title || "",
+      organization: latestCert.organization || "",
+      category: latestCert.category || "",
+      issueDate: latestCert.issueDate || "",
+      faculty: latestCert.facultyId?.toString() || "",
       file: null,
     });
     setModalMode("resubmit");
-    setEditingCert(cert);
+    setEditingCert(latestCert);
     setShowModal(true);
   };
 
@@ -207,7 +253,7 @@ const Certificates = () => {
         facultyName: selectedFaculty ? selectedFaculty.fullName : "",
         fileName,
         fileURL,
-        status: "PENDING",
+        status: modalMode === "resubmit" ? "RESUBMITTED" : "PENDING",
         submittedDate: modalMode === "resubmit" ? todayISO() : editingCert?.submittedDate || editingCert?.uploadDate || todayISO(),
         uploadDate: editingCert?.uploadDate || todayISO(),
         updatedDate: todayISO(),
@@ -235,7 +281,7 @@ const Certificates = () => {
       setEditingCert(null);
       setCertificateData({ title: "", organization: "", category: "", issueDate: "", faculty: "", file: null });
       fetchCertificates();
-    } catch (_) {
+    } catch {
       alert("Server error. Please try again.");
     }
     setSubmitting(false);
@@ -260,31 +306,55 @@ const Certificates = () => {
     }
   };
 
-  const handleDelete = (cert) => {
+  const handleDelete = async (cert) => {
+    const latestCert = await getLatestCertificate(cert.id) || cert;
     setDeleteConfirm({
       title: "Delete certificate?",
-      message: `Delete "${cert.title}"? This cannot be undone.`,
-      items: [cert],
+      message: `Delete "${latestCert.title}"? This cannot be undone.`,
+      items: [latestCert],
     });
   };
 
-  const handleViewCertificate = (item) => {
-    if (!item.fileURL) { alert("File not found"); return; }
-    window.open(item.fileURL, "_blank");
+  const handleOpenView = async (item) => {
+    const latestCert = await getLatestCertificate(item.id) || item;
+    setSelectedCert(latestCert);
+    setViewModal(true);
   };
 
-  const handleDownloadFeedback = (cert) => {
+  const handleViewCertificate = async (item) => {
+    const latestCert = await getLatestCertificate(item.id) || item;
+    if (!latestCert.fileURL) { alert("File not found"); return; }
+    try {
+      const res = await fetch(latestCert.fileURL);
+      if (!res.ok) { alert("Download failed"); return; }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = latestCert.fileName || latestCert.fileURL.split("/").pop() || "certificate";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Download failed");
+    }
+  };
+
+  const handleDownloadFeedback = async (cert) => {
+    const latestCert = await getLatestCertificate(cert.id) || cert;
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text("Certificate Feedback Report", 20, 20);
     doc.setFontSize(13);
-    doc.text(`Certificate : ${cert.title}`, 20, 50);
-    doc.text(`Organization : ${cert.organization}`, 20, 65);
-    doc.text(`Category : ${cert.category}`, 20, 80);
-    doc.text(`Status : ${cert.status}`, 20, 95);
+    doc.text(`Certificate : ${latestCert.title}`, 20, 50);
+    doc.text(`Organization : ${latestCert.organization}`, 20, 65);
+    doc.text(`Category : ${latestCert.category}`, 20, 80);
+    doc.text(`Status : ${latestCert.status}`, 20, 95);
     doc.text("Faculty Feedback", 20, 125);
-    doc.text(cert.remarks || "No feedback yet.", 20, 145);
-    doc.save(`${cert.title}_Feedback.pdf`);
+    doc.text(latestCert.remarks || "No feedback yet.", 20, 145);
+    doc.save(`${latestCert.title}_Feedback.pdf`);
   };
 
   const formatDate = (value) =>
@@ -347,19 +417,20 @@ const Certificates = () => {
                 <div>
                   <h3>{item.title}</h3>
                   <p>{item.organization} · {item.category}</p>
+                  <p className="deadline-meta">Last Date: {formatLastDate(item)}</p>
                 </div>
               </div>
               <div className="certificate-right">
                 <span className={`status ${item.status?.toLowerCase()}`}>{item.status?.toLowerCase()}</span>
                 <span className="date">{item.issueDate || "-"}</span>
 
-                <Eye className="action-icon" size={18} onClick={() => { setSelectedCert(item); setViewModal(true); }} style={{ cursor: "pointer" }} title="View" />
+                <Eye className="action-icon" size={18} onClick={() => handleOpenView(item)} style={{ cursor: "pointer" }} title="View" />
 
                 {item.status?.toLowerCase() === "pending" && (
                   <Pencil size={18} style={{ cursor: "pointer", color: "#6b7280" }} onClick={() => handleOpenEdit(item)} title="Edit" />
                 )}
 
-                {item.status?.toLowerCase() === "rejected" && (
+                {item.status?.toLowerCase() === "rejected" && canResubmit(item) && (
                   <button className="resubmit-btn" onClick={() => handleOpenResubmit(item)}>
                     <RotateCcw size={15} /> Resubmit
                   </button>
@@ -387,6 +458,7 @@ const Certificates = () => {
               <p><strong>Category:</strong> {selectedCert.category}</p>
               <p><strong>Issue Date:</strong> {selectedCert.issueDate || "-"}</p>
               <p><strong>Submitted:</strong> {formatDate(selectedCert.submittedDate || selectedCert.uploadDate)}</p>
+              <p><strong>Last Date for Submission:</strong> {formatLastDate(selectedCert)}</p>
               <p><strong>Last Updated:</strong> {formatDate(selectedCert.updatedDate || selectedCert.submittedDate || selectedCert.uploadDate)}</p>
               <p><strong>Faculty:</strong> {selectedCert.facultyName || "-"}</p>
               <p>

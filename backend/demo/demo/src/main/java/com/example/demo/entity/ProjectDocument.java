@@ -76,6 +76,8 @@ public class ProjectDocument {
 
     private String updatedDate;
 
+    private String lastSubmissionDate;
+
     private int version = 1;
 
     // =====================================
@@ -232,6 +234,14 @@ public class ProjectDocument {
 
     public void setUpdatedDate(String updatedDate) {
         this.updatedDate = updatedDate;
+    }
+
+    public String getLastSubmissionDate() {
+        return lastSubmissionDate;
+    }
+
+    public void setLastSubmissionDate(String lastSubmissionDate) {
+        this.lastSubmissionDate = lastSubmissionDate;
     }
 
     public int getVersion() {

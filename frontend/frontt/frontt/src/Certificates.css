@@ -143,6 +143,8 @@
 }
 .certificate-left h3{ font-size:15px; font-weight:700; color:#111827; margin-bottom:4px; }
 .certificate-left p{ font-size:12px; color:#6b7280; }
+.certificate-left .deadline-meta{ margin-top:4px; color:#d6ad60; font-weight:600; }
+.status.resubmitted{ background:#e0e7ff; color:#4f46e5; text-transform:capitalize; }
 .certificate-right{ display:flex; align-items:center; gap:18px; }
 .date{ font-size:12px; color:#6b7280; }
 .status{

@@ -26,7 +26,10 @@ const Notifications = () => {
       const res = await fetch(`${API}/users/notifications/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setNotifications(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)));
+      }
     } catch (error) { console.error("Notifications fetch error:", error); }
     setLoading(false);
   }, [token, userId]);

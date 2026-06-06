@@ -38,8 +38,13 @@ const AdminDashboard = () => {
       const res = await fetch(`${API}/users/admin/analytics`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setAnalytics(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setAnalytics(data);
+        return data;
+      }
     } catch (error) { console.error("Analytics fetch error:", error); }
+    return {};
   }, [token]);
 
   const fetchAuditLogs = useCallback(async () => {
@@ -49,9 +54,15 @@ const AdminDashboard = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setAuditLogs(data.slice(-5).reverse());
+        setAuditLogs(
+          data
+            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+            .slice(0, 5)
+        );
+        return data;
       }
     } catch (error) { console.error("Audit logs fetch error:", error); }
+    return [];
   }, [token]);
 
   useEffect(() => {
@@ -60,33 +71,18 @@ const AdminDashboard = () => {
     fetchAuditLogs();
   }, [token, userId, navigate, fetchAnalytics, fetchAuditLogs]);
 
-  useEffect(() => {
-    const refreshDashboard = () => {
-      fetchAnalytics();
-      fetchAuditLogs();
-    };
-    const refreshWhenActive = () => {
-      if (document.visibilityState === "visible") refreshDashboard();
-    };
-    const intervalId = setInterval(refreshDashboard, 15000);
-
-    window.addEventListener("focus", refreshDashboard);
-    document.addEventListener("visibilitychange", refreshWhenActive);
-
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener("focus", refreshDashboard);
-      document.removeEventListener("visibilitychange", refreshWhenActive);
-    };
-  }, [fetchAnalytics, fetchAuditLogs]);
-
   const approvalRate = analytics.totalProjects
     ? Math.round((analytics.approvedProjects / analytics.totalProjects) * 100)
     : 0;
 
-  const pendingCertificates = (analytics.totalCertificates || 0) - (analytics.approvedCertificates || 0);
+  const pendingCertificates = analytics.pendingCertificates ?? 0;
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
+    const latestAnalytics = await fetchAnalytics();
+    const reportData = Object.keys(latestAnalytics).length ? latestAnalytics : analytics;
+    const latestApprovalRate = reportData.totalProjects
+      ? Math.round((reportData.approvedProjects / reportData.totalProjects) * 100)
+      : 0;
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text("ProjectHub+ Analytics Report", 14, 20);
@@ -99,21 +95,34 @@ const AdminDashboard = () => {
       startY: 50,
       head: [["Category", "Count"]],
       body: [
-        ["Total Users", analytics.totalUsers || 0],
-        ["Faculty", analytics.facultyCount || 0],
-        ["Total Projects", analytics.totalProjects || 0],
-        ["Approved Projects", analytics.approvedProjects || 0],
-        ["Pending Projects", analytics.pendingProjects || 0],
-        ["Total Certificates", analytics.totalCertificates || 0],
-        ["Approved Certificates", analytics.approvedCertificates || 0],
-        ["Approval Rate", `${approvalRate}%`]
+        ["Total Users", reportData.totalUsers || 0],
+        ["Faculty", reportData.facultyCount || 0],
+        ["Total Projects", reportData.totalProjects || 0],
+        ["Approved Projects", reportData.approvedProjects || 0],
+        ["Pending Projects", reportData.pendingProjects || 0],
+        ["Total Certificates", reportData.totalCertificates || 0],
+        ["Approved Certificates", reportData.approvedCertificates || 0],
+        ["Approval Rate", `${latestApprovalRate}%`]
       ]
     });
 
     doc.save("ProjectHub_Analytics.pdf");
   };
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const refreshDashboard = async () => {
+    await Promise.all([fetchAnalytics(), fetchAuditLogs()]);
+  };
+
+  const refreshAndNavigate = async (path) => {
+    await refreshDashboard();
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    await refreshDashboard();
+    localStorage.clear();
+    navigate("/");
+  };
 
   const formatTime = (createdAt) => {
     if (!createdAt) return "";
@@ -140,22 +149,22 @@ const AdminDashboard = () => {
           </div>
 
           <div className="menu">
-            <div className="menu-item active">
+            <div className="menu-item active" onClick={refreshDashboard}>
               <LayoutDashboard size={20} /><span>Dashboard</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/manage-users")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/manage-users")}>
               <Users size={20} /><span>Manage Users</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/view-submissions")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/view-submissions")}>
               <FileText size={20} /><span>View Submissions</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-settings")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-settings")}>
               <Settings size={20} /><span>Settings</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-profile")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-profile")}>
               <User size={20} /><span>Profile</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-notifications")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-notifications")}>
               <Bell size={20} /><span>Notifications</span>
             </div>
           </div>
@@ -249,6 +258,14 @@ const AdminDashboard = () => {
                 <span>Pending Verification</span>
                 <strong className="yellow-text">{pendingCertificates}</strong>
               </div>
+              <div className="admin-row">
+                <span>Project Approval Rate</span>
+                <strong className="green-text">{approvalRate}%</strong>
+              </div>
+              <div className="admin-row">
+                <span>Pending Project Reviews</span>
+                <strong className="yellow-text">{analytics.pendingProjects || 0}</strong>
+              </div>
             </div>
           </div>
 
@@ -266,7 +283,7 @@ const AdminDashboard = () => {
                   <div className="admin-activity-item" key={log.id}>
                     <div>
                       <AlertTriangle size={18} />
-                      <span>{log.actionTitle || log.description}</span>
+                      <span>{log.description || log.actionTitle}</span>
                     </div>
                     <p>{formatTime(log.createdAt)}</p>
                   </div>
@@ -278,16 +295,16 @@ const AdminDashboard = () => {
 
         {/* QUICK ACTIONS */}
         <div className="quick-actions-grid">
-          <div className="quick-card" onClick={() => navigate("/manage-users")}>
+          <div className="quick-card" onClick={() => refreshAndNavigate("/manage-users")}>
             <Users size={28} /><h3>Manage Users</h3>
           </div>
-          <div className="quick-card" onClick={() => navigate("/admin-settings")}>
+          <div className="quick-card" onClick={() => refreshAndNavigate("/admin-settings")}>
             <BarChart3 size={28} /><h3>System Settings</h3>
           </div>
-          <div className="quick-card">
+          <div className="quick-card" onClick={() => refreshAndNavigate("/view-submissions")}>
             <FileText size={28} /><h3>View Submissions</h3>
           </div>
-          <div className="quick-card" onClick={() => navigate("/admin-notifications")}>
+          <div className="quick-card" onClick={() => refreshAndNavigate("/admin-notifications")}>
             <Bell size={28} /><h3>Notifications</h3>
           </div>
         </div>

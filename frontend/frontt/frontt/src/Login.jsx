@@ -76,7 +76,7 @@ export default function Login() {
         }
       }, 900);
 
-    } catch (err) {
+    } catch {
       setError("Server not reachable. Please try again.");
     }
 

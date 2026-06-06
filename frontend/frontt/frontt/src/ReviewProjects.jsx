@@ -28,6 +28,7 @@ const ReviewProjects = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   const [projects, setProjects] = useState([]);
+  const [deadlineRules, setDeadlineRules] = useState([]);
   const [feedback, setFeedback] = useState("");
   const [grade, setGrade] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -50,17 +51,36 @@ const ReviewProjects = () => {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/projects/mongo/faculty/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) setProjects(await res.json());
+      const headers = { Authorization: `Bearer ${token}` };
+      const [projectsRes, rulesRes] = await Promise.all([
+        fetch(`${API}/projects/mongo/faculty/${userId}`, { headers }),
+        fetch(`${API}/deadline-rules/type/Project`, { headers })
+      ]);
+      let projectData = [];
+      if (projectsRes.ok) {
+        projectData = await projectsRes.json();
+        setProjects(projectData);
+      }
+      if (rulesRes.ok) setDeadlineRules(await rulesRes.json());
+      return projectData;
     } catch (error) { console.error("Fetch projects error:", error); }
+    return [];
   }, [token, userId]);
 
   useEffect(() => {
     if (!token || !userId) { navigate("/"); return; }
     fetchProjects();
   }, [token, userId, navigate, fetchProjects]);
+
+  const formatDate = (value) =>
+    value ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-";
+  const getLastDate = (project) =>
+    project.lastSubmissionDate ||
+    deadlineRules.find((rule) =>
+      rule.status?.toLowerCase() === "active" &&
+      rule.name?.trim().toLowerCase() === project.subject?.trim().toLowerCase()
+    )?.deadline;
+  const getStatusLabel = (value) => value?.toLowerCase() === "resubmitted" ? "resubmit" : value?.toLowerCase();
 
   // Filter
   const filteredProjects = projects.filter((project) => {
@@ -99,6 +119,54 @@ const ReviewProjects = () => {
       }
     } catch (error) { console.error("Review error:", error); }
     setReviewing(false);
+  };
+
+  const getLatestProject = async (id) => {
+    const latest = await fetchProjects();
+    return latest.find((item) => item.id === id) || projects.find((item) => item.id === id);
+  };
+
+  const openReviewModal = async (project) => {
+    const latestProject = await getLatestProject(project.id) || project;
+    setSelectedProject(latestProject);
+    setFeedback("");
+    setGrade("");
+  };
+
+  const refreshAndSet = async (setter, value) => {
+    await fetchProjects();
+    setter(value);
+  };
+
+  const refreshAndPage = async (updater) => {
+    await fetchProjects();
+    setCurrentPage(updater);
+  };
+
+  const closeReviewModal = async () => {
+    await fetchProjects();
+    setSelectedProject(null);
+  };
+
+  const handleDownloadProjectFile = async (project) => {
+    const latestProject = await getLatestProject(project.id) || project;
+    if (!latestProject.fileName) { alert("File not found"); return; }
+    try {
+      const res = await fetch(`${API}/projects/download/${latestProject.fileName}`);
+      if (!res.ok) { alert("Download failed"); return; }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = latestProject.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Download failed");
+    }
   };
 
   const handleLogout = () => { localStorage.clear(); navigate("/"); };
@@ -149,39 +217,39 @@ const ReviewProjects = () => {
           </div>
 
           <div className="dropdown-wrapper" ref={statusRef}>
-            <div className="filter-dropdown" onClick={() => { setStatusOpen(!statusOpen); setSubjectOpen(false); setDeptOpen(false); }}>
+            <div className="filter-dropdown" onClick={() => { fetchProjects(); setStatusOpen(!statusOpen); setSubjectOpen(false); setDeptOpen(false); }}>
               <span>{selectedStatus}</span><ChevronDown size={18} />
             </div>
             {statusOpen && (
               <div className="dropdown-menu">
                 {["All Status", "Pending", "Approved", "Rejected", "Resubmitted"].map((item) => (
-                  <div key={item} className={selectedStatus === item ? "dropdown-item active" : "dropdown-item"} onClick={() => { setSelectedStatus(item); setStatusOpen(false); }}>{item}</div>
+                  <div key={item} className={selectedStatus === item ? "dropdown-item active" : "dropdown-item"} onClick={() => { refreshAndSet(setSelectedStatus, item); setStatusOpen(false); }}>{item}</div>
                 ))}
               </div>
             )}
           </div>
 
           <div className="dropdown-wrapper" ref={subjectRef}>
-            <div className="filter-dropdown" onClick={() => { setSubjectOpen(!subjectOpen); setStatusOpen(false); setDeptOpen(false); }}>
+            <div className="filter-dropdown" onClick={() => { fetchProjects(); setSubjectOpen(!subjectOpen); setStatusOpen(false); setDeptOpen(false); }}>
               <span>{selectedSubject}</span><ChevronDown size={18} />
             </div>
             {subjectOpen && (
               <div className="dropdown-menu">
                 {["All Subjects", "Machine Learning", "Web Development", "IoT", "Blockchain"].map((item) => (
-                  <div key={item} className={selectedSubject === item ? "dropdown-item active" : "dropdown-item"} onClick={() => { setSelectedSubject(item); setSubjectOpen(false); }}>{item}</div>
+                  <div key={item} className={selectedSubject === item ? "dropdown-item active" : "dropdown-item"} onClick={() => { refreshAndSet(setSelectedSubject, item); setSubjectOpen(false); }}>{item}</div>
                 ))}
               </div>
             )}
           </div>
 
           <div className="dropdown-wrapper" ref={deptRef}>
-            <div className="filter-dropdown" onClick={() => { setDeptOpen(!deptOpen); setStatusOpen(false); setSubjectOpen(false); }}>
+            <div className="filter-dropdown" onClick={() => { fetchProjects(); setDeptOpen(!deptOpen); setStatusOpen(false); setSubjectOpen(false); }}>
               <span>{selectedDepartment}</span><ChevronDown size={18} />
             </div>
             {deptOpen && (
               <div className="dropdown-menu">
                 {["All Departments", "CSE", "IT", "ECE", "AIDS", "MECH"].map((item) => (
-                  <div key={item} className={selectedDepartment === item ? "dropdown-item active" : "dropdown-item"} onClick={() => { setSelectedDepartment(item); setDeptOpen(false); }}>{item}</div>
+                  <div key={item} className={selectedDepartment === item ? "dropdown-item active" : "dropdown-item"} onClick={() => { refreshAndSet(setSelectedDepartment, item); setDeptOpen(false); }}>{item}</div>
                 ))}
               </div>
             )}
@@ -209,6 +277,7 @@ const ReviewProjects = () => {
                     <h3>{project.title}</h3>
                     <p>{project.studentName} · {project.subject} · v{project.version || 1}</p>
                     <span>{project.technology}</span>
+                    <p className="deadline-meta">Last Date: {formatDate(getLastDate(project))}</p>
                   </div>
                 </div>
                 <div className="project-right">
@@ -219,10 +288,10 @@ const ReviewProjects = () => {
                     project.status?.toLowerCase() === "resubmitted" ? "resubmit-badge" :
                     "pending-badge"
                   }>
-                    {project.status?.toLowerCase()}
+                    {getStatusLabel(project.status)}
                   </div>
-                  <span>{project.submittedDate ? new Date(project.submittedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}</span>
-                  <button className="review-btn" onClick={() => { setSelectedProject(project); setFeedback(""); setGrade(""); }}>
+                  <span>{formatDate(project.submittedDate)}</span>
+                  <button className="review-btn" onClick={() => openReviewModal(project)}>
                     <Eye size={18} /> Review
                   </button>
                 </div>
@@ -234,15 +303,15 @@ const ReviewProjects = () => {
         {/* PAGINATION */}
         {totalPages > 1 && (
           <div className="pagination">
-            <button className="page-btn" onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))} disabled={currentPage === 1}>
+            <button className="page-btn" onClick={() => refreshAndPage((p) => Math.max(p - 1, 1))} disabled={currentPage === 1}>
               <ChevronLeft size={18} /> Previous
             </button>
             <div className="page-numbers">
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button key={page} className={currentPage === page ? "page-number active" : "page-number"} onClick={() => setCurrentPage(page)}>{page}</button>
+                <button key={page} className={currentPage === page ? "page-number active" : "page-number"} onClick={() => refreshAndPage(page)}>{page}</button>
               ))}
             </div>
-            <button className="page-btn" onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}>
+            <button className="page-btn" onClick={() => refreshAndPage((p) => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}>
               Next <ChevronRight size={18} />
             </button>
           </div>
@@ -253,17 +322,20 @@ const ReviewProjects = () => {
       {selectedProject && (
         <div className="review-modal-overlay">
           <div className="review-modal">
-            <button className="close-btn" onClick={() => setSelectedProject(null)}><X size={24} /></button>
+            <button className="close-btn" onClick={closeReviewModal}><X size={24} /></button>
             <h2>Review: {selectedProject.title}</h2>
 
             <div className="modal-grid">
               <div>
                 <p><strong>Student:</strong> {selectedProject.studentName}</p>
                 <p><strong>Tech:</strong> {selectedProject.technology}</p>
+                <p><strong>Submitted Date:</strong> {formatDate(selectedProject.submittedDate)}</p>
               </div>
               <div>
                 <p><strong>Subject:</strong> {selectedProject.subject}</p>
                 <p><strong>Version:</strong> v{selectedProject.version || 1}</p>
+                <p><strong>Last Date for Submission:</strong> {formatDate(getLastDate(selectedProject))}</p>
+                <p><strong>Status:</strong> {getStatusLabel(selectedProject.status)}</p>
               </div>
             </div>
 
@@ -282,7 +354,7 @@ const ReviewProjects = () => {
             )}
 
             {selectedProject.fileName && (
-              <button className="download-file-btn" onClick={() => window.open(`${API}/projects/download/${selectedProject.fileName}`, "_blank")}>
+              <button className="download-file-btn" onClick={() => handleDownloadProjectFile(selectedProject)}>
                 Open {selectedProject.fileName}
               </button>
             )}

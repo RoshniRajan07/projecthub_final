@@ -115,10 +115,12 @@ const Profile = ({ role: roleProp }) => {
           hackerrank: data.hackerrankUrl || "",
           portfolio: data.portfolioUrl || "",
         });
+        return data;
       }
     } catch (error) {
       console.error("Profile fetch error:", error);
     }
+    return null;
   }, [token, userId]);
 
   const fetchBasicProfile = useCallback(async () => {
@@ -137,10 +139,12 @@ const Profile = ({ role: roleProp }) => {
           enrollmentYear: data.joiningYear || "",
           facultyCode: data.facultyCode || `FAC-${String(userId).padStart(3, '0')}`,
         }));
+        return data;
       }
     } catch (error) {
       console.error("Profile fetch error:", error);
     }
+    return null;
   }, [token, userId]);
 
   useEffect(() => {
@@ -160,6 +164,19 @@ const Profile = ({ role: roleProp }) => {
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const refreshProfile = async () => {
+    if (role === "STUDENT") {
+      await fetchProfile();
+    } else {
+      await fetchBasicProfile();
+    }
+  };
+
+  const refreshAndNavigate = async (path) => {
+    await refreshProfile();
+    navigate(path);
   };
 
   const handleSave = async () => {
@@ -182,6 +199,7 @@ const Profile = ({ role: roleProp }) => {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (res.ok) await fetchProfile();
         if (res.ok) {
           setMessage("Profile links saved successfully ✅");
         } else {
@@ -205,6 +223,7 @@ const Profile = ({ role: roleProp }) => {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (res.ok) await fetchBasicProfile();
         if (res.ok) {
           setMessage("Profile saved successfully ✅");
           localStorage.setItem("fullName", formData.fullName);
@@ -219,7 +238,8 @@ const Profile = ({ role: roleProp }) => {
     setSaving(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await refreshProfile();
     localStorage.clear();
     navigate("/");
   };
@@ -256,7 +276,7 @@ const Profile = ({ role: roleProp }) => {
                 <div
                   key={item.path}
                   className={item.path === config.activePath ? "menu-item active" : "menu-item"}
-                  onClick={() => navigate(item.path)}
+                  onClick={() => item.path === config.activePath ? refreshProfile() : refreshAndNavigate(item.path)}
                 >
                   <Icon size={20} />
                   <span>{item.label}</span>

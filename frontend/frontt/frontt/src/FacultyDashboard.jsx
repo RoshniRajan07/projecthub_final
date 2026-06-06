@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import "./FacultyDashboard.css";
 import {
   LayoutDashboard, BookOpen, BadgeCheck, Bell, LogOut, User,
-  FileText, Activity,
+  FileText, Activity, Clock, CheckCircle, XCircle,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -26,10 +26,21 @@ const FacultyDashboard = () => {
         fetch(`${API}/projects/mongo/faculty/${userId}`, { headers }),
         fetch(`${API}/certificates/faculty/${userId}`, { headers })
       ]);
-      if (projRes.ok) setProjects(await projRes.json());
-      if (certRes.ok) setCertificates(await certRes.json());
+      let projectData = [];
+      let certificateData = [];
+      if (projRes.ok) {
+        projectData = await projRes.json();
+        setProjects(projectData);
+      }
+      if (certRes.ok) {
+        certificateData = await certRes.json();
+        setCertificates(certificateData);
+      }
+      setLoading(false);
+      return { projectData, certificateData };
     } catch (error) { console.error("Faculty dashboard fetch error:", error); }
     setLoading(false);
+    return { projectData: [], certificateData: [] };
   }, [token, userId]);
 
   useEffect(() => {
@@ -37,27 +48,24 @@ const FacultyDashboard = () => {
     fetchData();
   }, [token, userId, navigate, fetchData]);
 
-  useEffect(() => {
-    const refreshWhenActive = () => {
-      if (document.visibilityState === "visible") fetchData();
-    };
-    const intervalId = setInterval(fetchData, 15000);
-
-    window.addEventListener("focus", fetchData);
-    document.addEventListener("visibilitychange", refreshWhenActive);
-
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener("focus", fetchData);
-      document.removeEventListener("visibilitychange", refreshWhenActive);
-    };
-  }, [fetchData]);
+  const isReviewNeeded = (status) => ["pending", "resubmitted"].includes(status?.toLowerCase());
+  const formatDate = (value) =>
+    value ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-";
+  const getBadgeClass = (status) => {
+    const normalized = status?.toLowerCase();
+    if (normalized === "approved") return "approved-badge";
+    if (normalized === "rejected") return "rejected-badge";
+    if (normalized === "resubmitted") return "resubmit-badge";
+    return "pending-badge";
+  };
+  const getStatusLabel = (status) => status?.toLowerCase() === "resubmitted" ? "resubmit" : status?.toLowerCase();
 
   // Counts
   const assignedProjects = projects.length;
-  const pendingProjects = projects.filter(p => p.status?.toLowerCase() === "pending").length;
+  const pendingProjects = projects.filter(p => isReviewNeeded(p.status)).length;
   const approvedProjects = projects.filter(p => p.status?.toLowerCase() === "approved").length;
-  const pendingCertificates = certificates.filter(c => c.status?.toLowerCase() === "pending").length;
+  const rejectedProjects = projects.filter(p => p.status?.toLowerCase() === "rejected").length;
+  const pendingCertificates = certificates.filter(c => isReviewNeeded(c.status)).length;
   const approvalRate = assignedProjects > 0 ? Math.round((approvedProjects / assignedProjects) * 100) : 0;
 
   // Reviewed This Week
@@ -70,7 +78,16 @@ const FacultyDashboard = () => {
     return true;
   }).length;
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const refreshAndNavigate = async (path) => {
+    await fetchData();
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    await fetchData();
+    localStorage.clear();
+    navigate("/");
+  };
 
   if (loading) {
     return <div className="faculty-page"><p style={{ padding: "2rem" }}>Loading...</p></div>;
@@ -88,11 +105,11 @@ const FacultyDashboard = () => {
           </div>
 
           <div className="menu">
-            <div className="menu-item active"><LayoutDashboard size={20} /><span>Dashboard</span></div>
-            <div className="menu-item" onClick={() => navigate("/review-projects")}><BookOpen size={20} /><span>Review Projects</span></div>
-            <div className="menu-item" onClick={() => navigate("/verify-certificates")}><BadgeCheck size={20} /><span>Verify Certificates</span></div>
-            <div className="menu-item" onClick={() => navigate("/faculty-profile")}><User size={20} /><span>Profile</span></div>
-            <div className="menu-item" onClick={() => navigate("/faculty-notifications")}><Bell size={20} /><span>Notifications</span></div>
+            <div className="menu-item active" onClick={fetchData}><LayoutDashboard size={20} /><span>Dashboard</span></div>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/review-projects")}><BookOpen size={20} /><span>Review Projects</span></div>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/verify-certificates")}><BadgeCheck size={20} /><span>Verify Certificates</span></div>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/faculty-profile")}><User size={20} /><span>Profile</span></div>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/faculty-notifications")}><Bell size={20} /><span>Notifications</span></div>
           </div>
         </div>
 
@@ -116,18 +133,37 @@ const FacultyDashboard = () => {
           </div>
         </div>
 
+        <div className="stats-grid">
+          <div className="stat-card" onClick={() => refreshAndNavigate("/review-projects")}>
+            <div className="card-top"><span>Rejected</span><XCircle size={24} className="orange" /></div>
+            <h2>{rejectedProjects}</h2>
+          </div>
+          <div className="stat-card" onClick={() => refreshAndNavigate("/review-projects")}>
+            <div className="card-top"><span>Pending Reviews</span><Clock size={24} className="orange" /></div>
+            <h2>{pendingProjects}</h2>
+          </div>
+          <div className="stat-card" onClick={() => refreshAndNavigate("/review-projects")}>
+            <div className="card-top"><span>Approved</span><CheckCircle size={24} className="green" /></div>
+            <h2>{approvedProjects}</h2>
+          </div>
+          <div className="stat-card" onClick={() => refreshAndNavigate("/verify-certificates")}>
+            <div className="card-top"><span>Certificates to Verify</span><BadgeCheck size={24} className="blue" /></div>
+            <h2>{pendingCertificates}</h2>
+          </div>
+        </div>
+
         {/* PENDING PROJECT REVIEWS */}
         <div className="review-section">
-          <div className="review-header" onClick={() => navigate("/review-projects")}>
+          <div className="review-header" onClick={() => refreshAndNavigate("/review-projects")}>
             <h3>Pending Project Reviews</h3>
             <span>Review All</span>
           </div>
 
-          {projects.filter(p => p.status?.toLowerCase() === "pending").length === 0 && (
+          {projects.filter(p => isReviewNeeded(p.status)).length === 0 && (
             <p style={{ padding: "1rem", color: "#888" }}>No pending reviews.</p>
           )}
 
-          {projects.filter(p => p.status?.toLowerCase() === "pending").slice(0, 5).map((item) => (
+          {projects.filter(p => isReviewNeeded(p.status)).slice(0, 5).map((item) => (
             <div className="review-item" key={item.id}>
               <div className="left-review">
                 <div className="file-box"><FileText size={22} /></div>
@@ -137,8 +173,8 @@ const FacultyDashboard = () => {
                 </div>
               </div>
               <div className="right-review">
-                <div className="pending-badge">pending</div>
-                <span>{item.submittedDate ? new Date(item.submittedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}</span>
+                <div className={getBadgeClass(item.status)}>{getStatusLabel(item.status)}</div>
+                <span>{formatDate(item.submittedDate)}</span>
               </div>
             </div>
           ))}
@@ -149,29 +185,29 @@ const FacultyDashboard = () => {
 
           {/* CERTIFICATES */}
           <div className="small-card">
-            <div className="small-card-header" onClick={() => navigate("/verify-certificates")}>
+            <div className="small-card-header" onClick={() => refreshAndNavigate("/verify-certificates")}>
               <h3>Certificates to Verify</h3>
               <span>View All</span>
             </div>
 
-            {certificates.filter(c => c.status?.toLowerCase() === "pending").length === 0 && (
+            {certificates.filter(c => isReviewNeeded(c.status)).length === 0 && (
               <p style={{ padding: "0.5rem", color: "#888" }}>No pending certificates.</p>
             )}
 
-            {certificates.filter(c => c.status?.toLowerCase() === "pending").slice(0, 3).map((item) => (
+            {certificates.filter(c => isReviewNeeded(c.status)).slice(0, 3).map((item) => (
               <div className="certificate-item" key={item.id}>
                 <div>
                   <h4>{item.title}</h4>
                   <p>{item.studentName} · {item.organization}</p>
                 </div>
-                <div className="pending-badge">pending</div>
+                <div className={getBadgeClass(item.status)}>{getStatusLabel(item.status)}</div>
               </div>
             ))}
           </div>
 
           {/* REVIEW STATS */}
           <div className="small-card">
-            <div className="small-card-header">
+            <div className="small-card-header" onClick={fetchData}>
               <h3><Activity size={20} className="gold" /> Review Statistics</h3>
             </div>
             <div className="stats-list">

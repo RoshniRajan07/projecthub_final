@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.example.demo.dto.StudentAnalyticsDTO;
 
 import com.example.demo.entity.CertificateDocument;
+import com.example.demo.entity.AdminSettings;
 import com.example.demo.entity.DeadlineRule;
 import com.example.demo.entity.NotificationDocument;
 import com.example.demo.entity.ProjectDocument;
@@ -21,6 +22,8 @@ import com.example.demo.entity.Student;
 import com.example.demo.entity.User;
 
 import com.example.demo.repository.CertificateMongoRepository;
+import com.example.demo.repository.AdminSettingsRepository;
+import com.example.demo.repository.AuditLogRepository;
 import com.example.demo.repository.DeadlineRuleRepository;
 import com.example.demo.repository.NotificationMongoRepository;
 import com.example.demo.repository.ProjectMongoRepository;
@@ -34,6 +37,9 @@ public class ProjectService {
     private DeadlineRuleRepository deadlineRuleRepository;
 
     @Autowired
+    private AdminSettingsRepository adminSettingsRepository;
+
+    @Autowired
     private ProjectMongoRepository projectMongoRepository;
 
     @Autowired
@@ -44,6 +50,9 @@ public class ProjectService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private AuditLogRepository auditLogRepository;
 
     @Autowired
     private StudentRepository studentRepository;
@@ -66,6 +75,7 @@ public class ProjectService {
         if (project.getVersion() == 0) {
             project.setVersion(1);
         }
+        applyProjectSubmissionRules(project, false);
 
         // Enrich with student department if not provided
         if ((project.getDepartment() == null || project.getDepartment().isEmpty()) && project.getStudentId() != null) {
@@ -73,11 +83,22 @@ public class ProjectService {
             student.ifPresent(s -> project.setDepartment(s.getDepartment()));
         }
 
-        return projectMongoRepository.save(project);
+        ProjectDocument saved = projectMongoRepository.save(project);
+        notifyAdmins(
+                "Project Submitted",
+                studentName(saved.getStudentName()) + " submitted project '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                "info");
+        saveAuditLog(
+                "Project Submitted",
+                studentName(saved.getStudentName()) + " submitted project '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                saved.getStudentId());
+        return saved;
     }
 
     public List<ProjectDocument> getMongoProjectsByStudent(Long studentId) {
-        return projectMongoRepository.findByStudentId(studentId);
+        List<ProjectDocument> projects = projectMongoRepository.findByStudentId(studentId);
+        projects.forEach(project -> applyProjectSubmissionRules(project, false));
+        return projects;
     }
 
     public List<ProjectDocument> getMongoFacultyProjects(Long facultyId) {
@@ -88,16 +109,21 @@ public class ProjectService {
                 Optional<Student> student = studentRepository.findByUserId(p.getStudentId());
                 student.ifPresent(s -> p.setDepartment(s.getDepartment()));
             }
+            applyProjectSubmissionRules(p, false);
         }
         return projects;
     }
 
     public List<ProjectDocument> getAllProjects() {
-        return projectMongoRepository.findAll();
+        List<ProjectDocument> projects = projectMongoRepository.findAll();
+        projects.forEach(project -> applyProjectSubmissionRules(project, false));
+        return projects;
     }
 
     public ProjectDocument getMongoProjectById(String id) {
-        return projectMongoRepository.findById(id).orElseThrow();
+        ProjectDocument project = projectMongoRepository.findById(id).orElseThrow();
+        applyProjectSubmissionRules(project, false);
+        return project;
     }
 
     public ProjectDocument reviewMongoProject(
@@ -139,6 +165,15 @@ public class ProjectService {
             notificationMongoRepository.save(notification);
         }
 
+        notifyAdmins(
+                "Project " + normalizeStatus(status),
+                facultyName(project.getFacultyName()) + " " + status.toLowerCase() + " project '" + project.getTitle() + "' from " + studentName(project.getStudentName()) + ".",
+                notificationTypeForStatus(status));
+        saveAuditLog(
+                "Project " + normalizeStatus(status),
+                facultyName(project.getFacultyName()) + " " + status.toLowerCase() + " project '" + project.getTitle() + "' from " + studentName(project.getStudentName()) + ".",
+                project.getFacultyId());
+
         return saved;
     }
 
@@ -157,8 +192,9 @@ public class ProjectService {
         project.setFileURL(updatedProject.getFileURL());
         project.setFacultyId(updatedProject.getFacultyId());
         project.setFacultyName(updatedProject.getFacultyName());
-        if ("PENDING".equalsIgnoreCase(updatedProject.getStatus())
-                && ("REJECTED".equalsIgnoreCase(project.getStatus()) || "RESUBMITTED".equalsIgnoreCase(project.getStatus()))) {
+        boolean resubmission = ("PENDING".equalsIgnoreCase(updatedProject.getStatus()) || "RESUBMITTED".equalsIgnoreCase(updatedProject.getStatus()))
+                && ("REJECTED".equalsIgnoreCase(project.getStatus()) || "RESUBMITTED".equalsIgnoreCase(project.getStatus()));
+        if (resubmission) {
             project.setFeedback(null);
             project.setGrade(null);
             project.setVersion(project.getVersion() + 1);
@@ -170,22 +206,44 @@ public class ProjectService {
             project.setStatus(updatedProject.getStatus());
         }
         project.setUpdatedDate(LocalDate.now().toString());
+        applyProjectSubmissionRules(project, resubmission);
 
-        return projectMongoRepository.save(project);
+        ProjectDocument saved = projectMongoRepository.save(project);
+        if (resubmission || "PENDING".equalsIgnoreCase(saved.getStatus()) || "RESUBMITTED".equalsIgnoreCase(saved.getStatus())) {
+            notifyAdmins(
+                    resubmission ? "Project Resubmitted" : "Project Updated",
+                    studentName(saved.getStudentName()) + " " + (resubmission ? "resubmitted" : "updated") + " project '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                    "info");
+            saveAuditLog(
+                    resubmission ? "Project Resubmitted" : "Project Updated",
+                    studentName(saved.getStudentName()) + " " + (resubmission ? "resubmitted" : "updated") + " project '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                    saved.getStudentId());
+        }
+        return saved;
     }
 
     public ProjectDocument resubmitProject(String id) {
 
         ProjectDocument project = projectMongoRepository.findById(id).orElseThrow();
 
-        project.setStatus("PENDING");
+        project.setStatus("RESUBMITTED");
         project.setFeedback(null);
         project.setGrade(null);
         project.setVersion(project.getVersion() + 1);
         project.setSubmittedDate(LocalDate.now().toString());
         project.setUpdatedDate(LocalDate.now().toString());
+        applyProjectSubmissionRules(project, true);
 
-        return projectMongoRepository.save(project);
+        ProjectDocument saved = projectMongoRepository.save(project);
+        notifyAdmins(
+                "Project Resubmitted",
+                studentName(saved.getStudentName()) + " resubmitted project '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                "info");
+        saveAuditLog(
+                "Project Resubmitted",
+                studentName(saved.getStudentName()) + " resubmitted project '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                saved.getStudentId());
+        return saved;
     }
 
     public void deleteMongoProject(String id) {
@@ -208,6 +266,7 @@ public class ProjectService {
             certificate.setUploadDate(LocalDate.now().toString());
         }
         certificate.setUpdatedDate(LocalDate.now().toString());
+        applyCertificateSubmissionRules(certificate, false);
 
         // Enrich department from student profile
         if ((certificate.getDepartment() == null || certificate.getDepartment().isEmpty()) && certificate.getStudentId() != null) {
@@ -215,15 +274,28 @@ public class ProjectService {
             student.ifPresent(s -> certificate.setDepartment(s.getDepartment()));
         }
 
-        return certificateMongoRepository.save(certificate);
+        CertificateDocument saved = certificateMongoRepository.save(certificate);
+        notifyAdmins(
+                "Certificate Submitted",
+                studentName(saved.getStudentName()) + " submitted certificate '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                "info");
+        saveAuditLog(
+                "Certificate Submitted",
+                studentName(saved.getStudentName()) + " submitted certificate '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                saved.getStudentId() == null ? null : saved.getStudentId().longValue());
+        return saved;
     }
 
     public List<CertificateDocument> getAllCertificates() {
-        return certificateMongoRepository.findAll();
+        List<CertificateDocument> certificates = certificateMongoRepository.findAll();
+        certificates.forEach(certificate -> applyCertificateSubmissionRules(certificate, false));
+        return certificates;
     }
 
     public List<CertificateDocument> getCertificatesByStudent(Long studentId) {
-        return certificateMongoRepository.findByStudentId(studentId);
+        List<CertificateDocument> certificates = certificateMongoRepository.findByStudentId(studentId);
+        certificates.forEach(certificate -> applyCertificateSubmissionRules(certificate, false));
+        return certificates;
     }
 
     public List<CertificateDocument> getCertificatesByFaculty(Integer facultyId) {
@@ -234,6 +306,7 @@ public class ProjectService {
                 Optional<Student> student = studentRepository.findByUserId(c.getStudentId().longValue());
                 student.ifPresent(s -> c.setDepartment(s.getDepartment()));
             }
+            applyCertificateSubmissionRules(c, false);
         }
         return certs;
     }
@@ -275,6 +348,15 @@ public class ProjectService {
             notificationMongoRepository.save(notification);
         }
 
+        notifyAdmins(
+                "Certificate " + normalizeStatus(status),
+                facultyName(certificate.getFacultyName()) + " " + status.toLowerCase() + " certificate '" + certificate.getTitle() + "' from " + studentName(certificate.getStudentName()) + ".",
+                notificationTypeForStatus(status));
+        saveAuditLog(
+                "Certificate " + normalizeStatus(status),
+                facultyName(certificate.getFacultyName()) + " " + status.toLowerCase() + " certificate '" + certificate.getTitle() + "' from " + studentName(certificate.getStudentName()) + ".",
+                certificate.getFacultyId() == null ? null : certificate.getFacultyId().longValue());
+
         return saved;
     }
 
@@ -288,7 +370,16 @@ public class ProjectService {
         certificate.setSubmittedDate(LocalDate.now().toString());
         certificate.setUpdatedDate(LocalDate.now().toString());
 
-        return certificateMongoRepository.save(certificate);
+        CertificateDocument saved = certificateMongoRepository.save(certificate);
+        notifyAdmins(
+                "Certificate Resubmitted",
+                studentName(saved.getStudentName()) + " resubmitted certificate '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                "info");
+        saveAuditLog(
+                "Certificate Resubmitted",
+                studentName(saved.getStudentName()) + " resubmitted certificate '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                saved.getStudentId() == null ? null : saved.getStudentId().longValue());
+        return saved;
     }
 
     public String deleteCertificate(String id) {
@@ -308,8 +399,9 @@ public class ProjectService {
         certificate.setFileURL(updatedCert.getFileURL());
         certificate.setFacultyId(updatedCert.getFacultyId());
         certificate.setFacultyName(updatedCert.getFacultyName());
-        if ("PENDING".equalsIgnoreCase(updatedCert.getStatus())
-                && ("REJECTED".equalsIgnoreCase(certificate.getStatus()) || "RESUBMITTED".equalsIgnoreCase(certificate.getStatus()))) {
+        boolean resubmission = ("PENDING".equalsIgnoreCase(updatedCert.getStatus()) || "RESUBMITTED".equalsIgnoreCase(updatedCert.getStatus()))
+                && ("REJECTED".equalsIgnoreCase(certificate.getStatus()) || "RESUBMITTED".equalsIgnoreCase(certificate.getStatus()));
+        if (resubmission) {
             certificate.setRemarks(null);
             certificate.setVersion(certificate.getVersion() + 1);
             certificate.setSubmittedDate(LocalDate.now().toString());
@@ -325,8 +417,134 @@ public class ProjectService {
             certificate.setStatus(updatedCert.getStatus());
         }
         certificate.setUpdatedDate(LocalDate.now().toString());
+        applyCertificateSubmissionRules(certificate, resubmission);
 
-        return certificateMongoRepository.save(certificate);
+        CertificateDocument saved = certificateMongoRepository.save(certificate);
+        if (resubmission || "PENDING".equalsIgnoreCase(saved.getStatus()) || "RESUBMITTED".equalsIgnoreCase(saved.getStatus())) {
+            notifyAdmins(
+                    resubmission ? "Certificate Resubmitted" : "Certificate Updated",
+                    studentName(saved.getStudentName()) + " " + (resubmission ? "resubmitted" : "updated") + " certificate '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                    "info");
+            saveAuditLog(
+                    resubmission ? "Certificate Resubmitted" : "Certificate Updated",
+                    studentName(saved.getStudentName()) + " " + (resubmission ? "resubmitted" : "updated") + " certificate '" + saved.getTitle() + "' to " + facultyName(saved.getFacultyName()) + ".",
+                    saved.getStudentId() == null ? null : saved.getStudentId().longValue());
+        }
+        return saved;
+    }
+
+    private void applyProjectSubmissionRules(ProjectDocument project, boolean isResubmission) {
+        Optional<DeadlineRule> rule = findActiveDeadlineRule("Project", project.getSubject());
+        rule.filter(r -> "Active".equalsIgnoreCase(r.getStatus()))
+                .ifPresent(r -> project.setLastSubmissionDate(r.getDeadline()));
+
+        if (isOverResubmissionLimit(project.getVersion(), rule.map(DeadlineRule::getResubmissions))) {
+            project.setStatus("REJECTED");
+            project.setFeedback("Maximum resubmission limit reached.");
+            return;
+        }
+
+        if (isLate(project.getSubmittedDate(), project.getLastSubmissionDate())
+                && ("PENDING".equalsIgnoreCase(project.getStatus()) || "RESUBMITTED".equalsIgnoreCase(project.getStatus()))) {
+            project.setStatus("RESUBMITTED");
+        }
+    }
+
+    private void applyCertificateSubmissionRules(CertificateDocument certificate, boolean isResubmission) {
+        Optional<DeadlineRule> rule = findActiveDeadlineRule("Certificate", certificate.getCategory());
+        rule.filter(r -> "Active".equalsIgnoreCase(r.getStatus()))
+                .ifPresent(r -> certificate.setLastSubmissionDate(r.getDeadline()));
+
+        if (isOverResubmissionLimit(certificate.getVersion(), rule.map(DeadlineRule::getResubmissions))) {
+            certificate.setStatus("REJECTED");
+            certificate.setRemarks("Maximum resubmission limit reached.");
+            return;
+        }
+
+        if (isLate(certificate.getSubmittedDate(), certificate.getLastSubmissionDate())
+                && ("PENDING".equalsIgnoreCase(certificate.getStatus()) || "RESUBMITTED".equalsIgnoreCase(certificate.getStatus()))) {
+            certificate.setStatus("RESUBMITTED");
+        }
+    }
+
+    private boolean isOverResubmissionLimit(int version, Optional<Integer> ruleLimit) {
+        int resubmissionCount = Math.max(0, version - 1);
+        Integer globalLimit = adminSettingsRepository.findAll().stream()
+                .max((left, right) -> Long.compare(left.getId(), right.getId()))
+                .map(AdminSettings::getMaxResubmissions)
+                .filter(limit -> limit >= 0)
+                .orElse(null);
+        Integer limit = ruleLimit.filter(value -> value >= 0).orElse(globalLimit);
+        if (limit == null) return false;
+        if (globalLimit != null) limit = Math.min(limit, globalLimit);
+        return resubmissionCount > limit;
+    }
+
+    private boolean isLate(String submittedDate, String deadline) {
+        if (submittedDate == null || submittedDate.isEmpty() || deadline == null || deadline.isEmpty()) return false;
+        try {
+            return LocalDate.parse(submittedDate.substring(0, 10)).isAfter(LocalDate.parse(deadline.substring(0, 10)));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Optional<DeadlineRule> findActiveDeadlineRule(String type, String name) {
+        if (name == null || name.isBlank()) return Optional.empty();
+        String normalizedType = type.trim();
+        String normalizedName = name.trim();
+        return deadlineRuleRepository.findAll().stream()
+                .filter(rule -> rule.getType() != null && rule.getName() != null)
+                .filter(rule -> normalizedType.equalsIgnoreCase(rule.getType().trim()))
+                .filter(rule -> normalizedName.equalsIgnoreCase(rule.getName().trim()))
+                .filter(rule -> "Active".equalsIgnoreCase(rule.getStatus()))
+                .findFirst();
+    }
+
+    private void notifyAdmins(String title, String message, String type) {
+        userRepository.findAll().stream()
+                .filter(user -> "ADMIN".equalsIgnoreCase(user.getRole()))
+                .forEach(admin -> {
+            NotificationDocument notification = new NotificationDocument();
+            notification.setUserId(admin.getId());
+            notification.setRole("ADMIN");
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setType(type);
+            notification.setRead(false);
+            notification.setCreatedAt(LocalDateTime.now());
+            notificationMongoRepository.save(notification);
+                });
+    }
+
+    private void saveAuditLog(String title, String description, Long performedBy) {
+        com.example.demo.entity.AuditLog log = new com.example.demo.entity.AuditLog();
+        log.setActionTitle(title);
+        log.setDescription(description);
+        if (performedBy != null) {
+            userRepository.findById(performedBy).ifPresent(log::setPerformedBy);
+        }
+        log.setCreatedAt(LocalDateTime.now());
+        auditLogRepository.save(log);
+    }
+
+    private String notificationTypeForStatus(String status) {
+        if ("APPROVED".equalsIgnoreCase(status)) return "success";
+        if ("REJECTED".equalsIgnoreCase(status)) return "danger";
+        return "info";
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.isEmpty()) return "Updated";
+        return status.substring(0, 1).toUpperCase() + status.substring(1).toLowerCase();
+    }
+
+    private String facultyName(String value) {
+        return value == null || value.isBlank() ? "Faculty" : value;
+    }
+
+    private String studentName(String value) {
+        return value == null || value.isBlank() ? "student" : value;
     }
 
     // =====================================
@@ -378,7 +596,8 @@ public class ProjectService {
 
         dto.setPendingProjects(
                 projects.stream()
-                        .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus()))
+                        .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus())
+                                || "RESUBMITTED".equalsIgnoreCase(project.getStatus()))
                         .count());
 
         dto.setRejectedProjects(
@@ -426,7 +645,8 @@ public class ProjectService {
                 .count();
 
         long pendingProjects = allProjects.stream()
-                .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus()))
+                .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus())
+                        || "RESUBMITTED".equalsIgnoreCase(project.getStatus()))
                 .count();
 
         long rejectedProjects = allProjects.stream()
@@ -487,8 +707,11 @@ public class ProjectService {
 
     public DeadlineRule createOrUpdateDeadlineRule(DeadlineRule rule) {
 
-        Optional<DeadlineRule> existing =
-                deadlineRuleRepository.findByTypeAndName(rule.getType(), rule.getName());
+        Optional<DeadlineRule> existing = deadlineRuleRepository.findAll().stream()
+                .filter(item -> item.getType() != null && item.getName() != null)
+                .filter(item -> item.getType().trim().equalsIgnoreCase(rule.getType().trim()))
+                .filter(item -> item.getName().trim().equalsIgnoreCase(rule.getName().trim()))
+                .findFirst();
 
         if (existing.isPresent()) {
             DeadlineRule existingRule = existing.get();

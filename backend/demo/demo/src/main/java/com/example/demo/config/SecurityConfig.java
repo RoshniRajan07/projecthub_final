@@ -113,12 +113,27 @@ public class SecurityConfig {
                 .hasRole("ADMIN")
 
                 .requestMatchers(
+                        HttpMethod.GET,
 
+                        "/users/settings",
+                        "/users/settings/**")
+
+                .hasAnyRole(
+                        "STUDENT",
+                        "FACULTY",
+                        "ADMIN")
+
+                .requestMatchers(
+
+                        "/users/settings",
                         "/users/settings/**",
 
                         "/users/admin/**",
 
                         "/users/audit-logs",
+
+                        "/users/bulk-upload",
+                        "/users/bulk-upload/**",
 
                         "/users/assign-faculty/**")
 
@@ -184,6 +199,39 @@ public class SecurityConfig {
                         "STUDENT",
                         "ADMIN")
 
+                .requestMatchers(
+                        "/users/faculty/profile/**")
+
+                .hasAnyRole(
+                        "FACULTY",
+                        "ADMIN")
+
+                .requestMatchers(
+                        "/users/notifications",
+                        "/users/notifications/**")
+
+                .hasAnyRole(
+                        "STUDENT",
+                        "FACULTY",
+                        "ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.GET,
+
+                        "/deadline-rules",
+                        "/deadline-rules/**")
+
+                .hasAnyRole(
+                        "STUDENT",
+                        "FACULTY",
+                        "ADMIN")
+
+                .requestMatchers(
+                        "/deadline-rules",
+                        "/deadline-rules/**")
+
+                .hasRole("ADMIN")
+
                 // =====================================
                 // STUDENT PROJECT APIs
                 // =====================================
@@ -191,9 +239,11 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.POST,
 
+                        "/projects/upload",
+
                         "/projects/mongo",
 
-                        "/projects/mongo/certificates",
+                        "/certificates",
 
                         "/projects/*/upload",
 
@@ -219,7 +269,16 @@ public class SecurityConfig {
 
                         "/projects/mongo/resubmit/**",
 
-                        "/projects/mongo/certificates/resubmit/**")
+                        "/certificates/*")
+
+                .hasAnyRole(
+                        "STUDENT",
+                        "ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.DELETE,
+
+                        "/certificates/*")
 
                 .hasAnyRole(
                         "STUDENT",
@@ -234,7 +293,7 @@ public class SecurityConfig {
 
                         "/projects/mongo/review/**",
 
-                        "/projects/mongo/certificates/verify/**")
+                        "/certificates/*/verify")
 
                 .hasAnyRole(
                         "FACULTY",
@@ -244,11 +303,28 @@ public class SecurityConfig {
 
                         "/projects/mongo/faculty/**",
 
-                        "/projects/mongo/certificates/faculty/**")
+                        "/certificates/faculty/**")
 
                 .hasAnyRole(
                         "FACULTY",
                         "ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.GET,
+
+                        "/certificates/student/**")
+
+                .hasAnyRole(
+                        "STUDENT",
+                        "ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.GET,
+
+                        "/certificates",
+                        "/certificates/**")
+
+                .hasRole("ADMIN")
 
                 // =====================================
                 // AUTHENTICATED USERS

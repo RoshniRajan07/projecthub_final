@@ -35,9 +35,15 @@ const AdminNotifications = () => {
       const res = await fetch(`${API}/users/notifications/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setNotifications(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setNotifications(data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)));
+        setLoading(false);
+        return data;
+      }
     } catch (error) { console.error("Notifications fetch error:", error); }
     setLoading(false);
+    return [];
   }, [token, userId]);
 
   useEffect(() => {
@@ -66,11 +72,13 @@ const AdminNotifications = () => {
     }
   };
 
-  const handleDelete = (item) => {
+  const handleDelete = async (item) => {
+    const latest = await fetchNotifications();
+    const latestItem = latest.find((entry) => entry.id === item.id) || item;
     setDeleteConfirm({
       title: "Delete notification?",
-      message: `Delete "${item.title}"? This cannot be undone.`,
-      items: [item],
+      message: `Delete "${latestItem.title}"? This cannot be undone.`,
+      items: [latestItem],
     });
   };
 
@@ -89,7 +97,16 @@ const AdminNotifications = () => {
     } catch (error) { console.error("Mark read error:", error); }
   };
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const refreshAndNavigate = async (path) => {
+    await fetchNotifications();
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    await fetchNotifications();
+    localStorage.clear();
+    navigate("/");
+  };
 
   const formatTime = (createdAt) => {
     if (!createdAt) return "";
@@ -108,6 +125,7 @@ const AdminNotifications = () => {
     if (!title) return <Bell size={24} />;
     const t = title.toLowerCase();
     if (t.includes("user") || t.includes("register")) return <UserPlus size={24} />;
+    if (t.includes("project") || t.includes("certificate")) return <FileText size={24} />;
     if (t.includes("deadline") || t.includes("reminder")) return <Clock3 size={24} />;
     if (t.includes("alert") || t.includes("reject")) return <AlertTriangle size={24} />;
     return <Bell size={24} />;
@@ -124,22 +142,22 @@ const AdminNotifications = () => {
             <h2>ProjectHub<span>+</span></h2>
           </div>
           <div className="menu">
-            <div className="menu-item" onClick={() => navigate("/admin-dashboard")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-dashboard")}>
               <LayoutDashboard size={20} /><span>Dashboard</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/manage-users")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/manage-users")}>
               <Users size={20} /><span>Manage Users</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/view-submissions")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/view-submissions")}>
               <FileText size={20} /><span>View Submissions</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-settings")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-settings")}>
               <Settings size={20} /><span>Settings</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-profile")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-profile")}>
               <User size={20} /><span>Profile</span>
             </div>
-            <div className="menu-item active">
+            <div className="menu-item active" onClick={fetchNotifications}>
               <Bell size={20} /><span>Notifications</span>
             </div>
           </div>
@@ -204,7 +222,7 @@ const AdminNotifications = () => {
         title={deleteConfirm?.title}
         message={deleteConfirm?.message}
         busy={deleting}
-        onCancel={() => setDeleteConfirm(null)}
+        onCancel={async () => { await fetchNotifications(); setDeleteConfirm(null); }}
         onConfirm={() => deleteNotifications(deleteConfirm.items)}
       />
     </div>

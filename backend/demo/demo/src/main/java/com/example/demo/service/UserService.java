@@ -467,7 +467,16 @@ public class UserService {
 
     public AdminSettings saveSettings(AdminSettings settings) {
 
-        AdminSettings saved = adminSettingsRepository.save(settings);
+        AdminSettings current = adminSettingsRepository.findAll().stream()
+                .max((left, right) -> Long.compare(left.getId(), right.getId()))
+                .orElseGet(AdminSettings::new);
+
+        current.setMaxFileSize(settings.getMaxFileSize());
+        current.setMaxResubmissions(settings.getMaxResubmissions());
+        current.setSubmissionDeadline(settings.getSubmissionDeadline());
+        current.setAllowedFileTypes(settings.getAllowedFileTypes());
+
+        AdminSettings saved = adminSettingsRepository.save(current);
 
         saveAuditLog(
                 "Settings Updated",
@@ -479,7 +488,10 @@ public class UserService {
     }
 
     public List<AdminSettings> getAllSettings() {
-        return adminSettingsRepository.findAll();
+        return adminSettingsRepository.findAll().stream()
+                .max((left, right) -> Long.compare(left.getId(), right.getId()))
+                .map(List::of)
+                .orElseGet(List::of);
     }
 
     // =========================================
@@ -503,7 +515,8 @@ public class UserService {
 
         dto.setPendingProjects(
                 allProjects.stream()
-                        .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus()))
+                        .filter(project -> "PENDING".equalsIgnoreCase(project.getStatus())
+                                || "RESUBMITTED".equalsIgnoreCase(project.getStatus()))
                         .count());
 
         dto.setTotalCertificates(certificateMongoRepository.count());
@@ -511,6 +524,12 @@ public class UserService {
         dto.setApprovedCertificates(
                 certificateMongoRepository.findAll().stream()
                         .filter(certificate -> "APPROVED".equalsIgnoreCase(certificate.getStatus()))
+                        .count());
+
+        dto.setPendingCertificates(
+                certificateMongoRepository.findAll().stream()
+                        .filter(certificate -> "PENDING".equalsIgnoreCase(certificate.getStatus())
+                                || "RESUBMITTED".equalsIgnoreCase(certificate.getStatus()))
                         .count());
 
         dto.setFacultyCount(
@@ -534,7 +553,103 @@ public class UserService {
     }
 
     public List<NotificationDocument> getNotifications(Long userId) {
+        userRepository.findById(userId)
+                .filter(user -> "ADMIN".equalsIgnoreCase(user.getRole()))
+                .ifPresent(admin -> {
+                    syncAdminAuditNotifications(admin.getId());
+                    syncAdminSubmissionNotifications(admin.getId());
+                });
         return notificationMongoRepository.findByUserId(userId);
+    }
+
+    private void syncAdminAuditNotifications(Long adminId) {
+        auditLogRepository.findAll().forEach(log -> {
+            String title = log.getActionTitle() == null ? "System Activity" : log.getActionTitle();
+            String message = log.getDescription() == null ? title : log.getDescription();
+            saveAdminNotificationIfMissing(
+                    adminId,
+                    title,
+                    message,
+                    notificationTypeForAudit(title),
+                    log.getCreatedAt());
+        });
+    }
+
+    private void syncAdminSubmissionNotifications(Long adminId) {
+        projectMongoRepository.findAll().forEach(project -> {
+            String student = displayName(project.getStudentName(), "Student");
+            String faculty = displayName(project.getFacultyName(), "Faculty");
+            saveAdminNotificationIfMissing(
+                    adminId,
+                    "Project Submitted",
+                    student + " submitted project '" + project.getTitle() + "' to " + faculty + ".",
+                    "info",
+                    null);
+
+            if ("APPROVED".equalsIgnoreCase(project.getStatus()) || "REJECTED".equalsIgnoreCase(project.getStatus())) {
+                saveAdminNotificationIfMissing(
+                        adminId,
+                        "Project " + normalizedStatus(project.getStatus()),
+                        faculty + " " + project.getStatus().toLowerCase() + " project '" + project.getTitle() + "' from " + student + ".",
+                        "APPROVED".equalsIgnoreCase(project.getStatus()) ? "success" : "danger",
+                        null);
+            }
+        });
+
+        certificateMongoRepository.findAll().forEach(certificate -> {
+            String student = displayName(certificate.getStudentName(), "Student");
+            String faculty = displayName(certificate.getFacultyName(), "Faculty");
+            saveAdminNotificationIfMissing(
+                    adminId,
+                    "Certificate Submitted",
+                    student + " submitted certificate '" + certificate.getTitle() + "' to " + faculty + ".",
+                    "info",
+                    null);
+
+            if ("APPROVED".equalsIgnoreCase(certificate.getStatus()) || "REJECTED".equalsIgnoreCase(certificate.getStatus())) {
+                saveAdminNotificationIfMissing(
+                        adminId,
+                        "Certificate " + normalizedStatus(certificate.getStatus()),
+                        faculty + " " + certificate.getStatus().toLowerCase() + " certificate '" + certificate.getTitle() + "' from " + student + ".",
+                        "APPROVED".equalsIgnoreCase(certificate.getStatus()) ? "success" : "danger",
+                        null);
+            }
+        });
+    }
+
+    private void saveAdminNotificationIfMissing(
+            Long adminId,
+            String title,
+            String message,
+            String type,
+            LocalDateTime createdAt) {
+        if (notificationMongoRepository.existsByUserIdAndTitleAndMessage(adminId, title, message)) return;
+
+        NotificationDocument notification = new NotificationDocument();
+        notification.setUserId(adminId);
+        notification.setRole("ADMIN");
+        notification.setTitle(title);
+        notification.setMessage(message);
+        notification.setType(type);
+        notification.setRead(false);
+        notification.setCreatedAt(createdAt == null ? LocalDateTime.now() : createdAt);
+        notificationMongoRepository.save(notification);
+    }
+
+    private String displayName(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String normalizedStatus(String status) {
+        return status.substring(0, 1).toUpperCase() + status.substring(1).toLowerCase();
+    }
+
+    private String notificationTypeForAudit(String title) {
+        String normalized = title == null ? "" : title.toLowerCase();
+        if (normalized.contains("approved")) return "success";
+        if (normalized.contains("rejected") || normalized.contains("deleted")) return "danger";
+        if (normalized.contains("deadline") || normalized.contains("settings")) return "warning";
+        return "info";
     }
 
     public NotificationDocument markNotificationAsRead(String id) {

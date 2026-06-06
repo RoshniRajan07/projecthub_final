@@ -12,4 +12,9 @@ extends MongoRepository<NotificationDocument, String> {
     List<NotificationDocument>
     findByUserId(
             Long userId);
+
+    boolean existsByUserIdAndTitleAndMessage(
+            Long userId,
+            String title,
+            String message);
 }

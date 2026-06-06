@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import "./SubmitProject.css";
 import {
   LayoutDashboard,
@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import ConfirmToast from "./ConfirmToast";
 
 const API = "http://localhost:8081";
@@ -28,8 +27,6 @@ export default function SubmitProject() {
   const token = localStorage.getItem("token");
   const userId = localStorage.getItem("userId");
   const fullName = localStorage.getItem("fullName") || "Student";
-
-  const headers = { Authorization: `Bearer ${token}` };
 
   const [activeTab, setActiveTab] = useState("new");
   const [viewModal, setViewModal] = useState(false);
@@ -53,6 +50,46 @@ export default function SubmitProject() {
   const [deleting, setDeleting] = useState(false);
   const [facultyList, setFacultyList] = useState([]);
   const [deadlineRules, setDeadlineRules] = useState([]);
+  const [maxResubmissions] = useState(3);
+
+  const fetchProjects = useCallback(async () => {
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const res = await fetch(`${API}/projects/mongo/student/${userId}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setSubmissions(data);
+        return data;
+      }
+    } catch (err) { console.error(err); }
+    return [];
+  }, [token, userId]);
+
+  const fetchFaculty = useCallback(async () => {
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const res = await fetch(`${API}/users/filter/role?role=FACULTY`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setFacultyList(data); // [{id, fullName, ...}]
+        return data;
+      }
+    } catch (err) { console.error(err); }
+    return [];
+  }, [token]);
+
+  const fetchDeadlineRules = useCallback(async () => {
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const res = await fetch(`${API}/deadline-rules/type/Project`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setDeadlineRules(data);
+        return data;
+      }
+    } catch (err) { console.error(err); }
+    return [];
+  }, [token]);
 
   // Fetch data on mount
   useEffect(() => {
@@ -60,31 +97,7 @@ export default function SubmitProject() {
     fetchProjects();
     fetchFaculty();
     fetchDeadlineRules();
-  }, []);
-
-  const fetchProjects = async () => {
-    try {
-      const res = await fetch(`${API}/projects/mongo/student/${userId}`, { headers });
-      if (res.ok) setSubmissions(await res.json());
-    } catch (err) { console.error(err); }
-  };
-
-  const fetchFaculty = async () => {
-    try {
-      const res = await fetch(`${API}/users/filter/role?role=FACULTY`, { headers });
-      if (res.ok) {
-        const data = await res.json();
-        setFacultyList(data); // [{id, fullName, ...}]
-      }
-    } catch (err) { console.error(err); }
-  };
-
-  const fetchDeadlineRules = async () => {
-    try {
-      const res = await fetch(`${API}/deadline-rules/type/Project`, { headers });
-      if (res.ok) setDeadlineRules(await res.json());
-    } catch (err) { console.error(err); }
-  };
+  }, [token, userId, navigate, fetchProjects, fetchFaculty, fetchDeadlineRules]);
 
   const visibleSubmissions = [...submissions]
     .sort((a, b) => {
@@ -105,6 +118,14 @@ export default function SubmitProject() {
 
   const formatDeadline = (value) =>
     new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const getProjectLastDate = (item) =>
+    item.lastSubmissionDate ||
+    deadlineRules.find((rule) =>
+      rule.type?.toLowerCase() === "project" &&
+      rule.status?.toLowerCase() === "active" &&
+      rule.name?.trim().toLowerCase() === item.subject?.trim().toLowerCase()
+    )?.deadline;
+  const formatLastDate = (item) => getProjectLastDate(item) ? formatDeadline(getProjectLastDate(item)) : "Not set";
 
   const getDaysLeft = (value) => {
     const today = new Date();
@@ -116,8 +137,19 @@ export default function SubmitProject() {
 
   const todayISO = () => new Date().toISOString().slice(0, 10);
 
+  const getResubmissionLimit = (item) => {
+    const rule = deadlineRules.find((deadline) =>
+      deadline.name === item.subject && deadline.status === "Active"
+    );
+    const ruleLimit = rule?.resubmissions !== undefined ? Number(rule.resubmissions) : maxResubmissions;
+    return Math.min(ruleLimit, maxResubmissions);
+  };
+
+  const canResubmit = (item) => Math.max(0, (item.version || 1) - 1) < getResubmissionLimit(item);
+
   const notifyFaculty = async (facultyId, projectName, mode) => {
     if (!facultyId) return;
+    const headers = { Authorization: `Bearer ${token}` };
     try {
       await fetch(`${API}/users/notifications`, {
         method: "POST",
@@ -148,26 +180,31 @@ export default function SubmitProject() {
     setFormMode("new");
   };
 
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(20);
-    doc.text("Project Submission History", 14, 20);
-    const tableColumn = ["Title", "Subject", "Technology", "Status", "Date"];
-    const tableRows = submissions.map((item) => [
-      item.title, item.subject, item.technology, item.status,
-      item.submittedDate ? new Date(item.submittedDate).toLocaleDateString() : "-"
-    ]);
-    autoTable(doc, { head: [tableColumn], body: tableRows, startY: 30 });
-    doc.save("SubmissionHistory.pdf");
+  const getLatestProject = async (id) => {
+    const latest = await fetchProjects();
+    return latest.find((item) => item.id === id) || submissions.find((item) => item.id === id);
   };
 
-  const handleViewProject = (project) => {
-    setSelectedProject(project);
+  const openNewSubmission = async () => {
+    await Promise.all([fetchFaculty(), fetchDeadlineRules()]);
+    setActiveTab("new");
+    if (formMode === "new") resetForm();
+  };
+
+  const openSubmissionHistory = async () => {
+    await fetchProjects();
+    setActiveTab("history");
+  };
+
+  const handleViewProject = async (project) => {
+    const latestProject = await getLatestProject(project.id) || project;
+    setSelectedProject(latestProject);
     setViewModal(true);
   };
 
   const deleteProjectItems = async (items) => {
     setDeleting(true);
+    const headers = { Authorization: `Bearer ${token}` };
     try {
       await Promise.all(items.map((project) =>
         fetch(`${API}/projects/mongo/${project.id}`, { method: "DELETE", headers })
@@ -182,36 +219,60 @@ export default function SubmitProject() {
     }
   };
 
-  const handleDeleteProject = (project) => {
+  const handleDeleteProject = async (project) => {
+    const latestProject = await getLatestProject(project.id) || project;
     setDeleteConfirm({
       title: "Delete project?",
-      message: `Delete "${project.title}"? This cannot be undone.`,
-      items: [project],
+      message: `Delete "${latestProject.title}"? This cannot be undone.`,
+      items: [latestProject],
     });
   };
 
-  const handleDownloadFeedback = (project) => {
+  const handleDownloadFeedback = async (project) => {
+    const latestProject = await getLatestProject(project.id) || project;
     const doc = new jsPDF();
     doc.setFontSize(20);
     doc.text("Faculty Feedback Report", 20, 20);
     doc.setFontSize(13);
-    doc.text(`Project : ${project.title}`, 20, 50);
-    doc.text(`Subject : ${project.subject}`, 20, 65);
-    doc.text(`Technology : ${project.technology}`, 20, 80);
-    doc.text(`Status : ${project.status}`, 20, 95);
+    doc.text(`Project : ${latestProject.title}`, 20, 50);
+    doc.text(`Subject : ${latestProject.subject}`, 20, 65);
+    doc.text(`Technology : ${latestProject.technology}`, 20, 80);
+    doc.text(`Status : ${latestProject.status}`, 20, 95);
     doc.text("Faculty Feedback", 20, 125);
-    doc.text(project.feedback || "No feedback yet.", 20, 145);
-    doc.save(`${project.title}_Feedback.pdf`);
+    doc.text(latestProject.feedback || "No feedback yet.", 20, 145);
+    doc.save(`${latestProject.title}_Feedback.pdf`);
   };
 
-  const handleOpenEdit = (item) => {
-    setEditingProject(item);
-    setProjectTitle(item.title);
-    setSubject(item.subject);
-    setAbstract(item.abstractText || "");
-    setTechnology(item.technology);
-    setGithubUrl(item.githubUrl || "");
-    setSelectedFaculty(item.facultyId?.toString() || "");
+  const handleDownloadProjectFile = async (project) => {
+    const latestProject = await getLatestProject(project.id) || project;
+    if (!latestProject.fileName) { alert("File not found"); return; }
+    try {
+      const res = await fetch(`${API}/projects/download/${latestProject.fileName}`);
+      if (!res.ok) { alert("Download failed"); return; }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = latestProject.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download error:", error);
+      alert("Download failed");
+    }
+  };
+
+  const handleOpenEdit = async (item) => {
+    const latestItem = await getLatestProject(item.id) || item;
+    setEditingProject(latestItem);
+    setProjectTitle(latestItem.title);
+    setSubject(latestItem.subject);
+    setAbstract(latestItem.abstractText || "");
+    setTechnology(latestItem.technology);
+    setGithubUrl(latestItem.githubUrl || "");
+    setSelectedFaculty(latestItem.facultyId?.toString() || "");
     setFile(null);
     setErrors({});
     setFormMode("edit");
@@ -220,13 +281,18 @@ export default function SubmitProject() {
 
   const handleResubmit = async (item) => {
     try {
-      setEditingProject(item);
-      setProjectTitle(item.title);
-      setSubject(item.subject);
-      setAbstract(item.abstractText || "");
-      setTechnology(item.technology);
-      setGithubUrl(item.githubUrl || "");
-      setSelectedFaculty(item.facultyId?.toString() || "");
+      const latestItem = await getLatestProject(item.id) || item;
+      if (!canResubmit(latestItem)) {
+        alert(`Maximum resubmission limit reached (${getResubmissionLimit(latestItem)}).`);
+        return;
+      }
+      setEditingProject(latestItem);
+      setProjectTitle(latestItem.title);
+      setSubject(latestItem.subject);
+      setAbstract(latestItem.abstractText || "");
+      setTechnology(latestItem.technology);
+      setGithubUrl(latestItem.githubUrl || "");
+      setSelectedFaculty(latestItem.facultyId?.toString() || "");
       setFile(null);
       setErrors({});
       setFormMode("resubmit");
@@ -278,12 +344,13 @@ export default function SubmitProject() {
         facultyName: faculty ? faculty.fullName : "",
         fileName,
         fileURL: `${API}/projects/download/${fileName}`,
-        status: "PENDING",
+        status: formMode === "resubmit" ? "RESUBMITTED" : "PENDING",
         submittedDate: formMode === "resubmit" ? todayISO() : editingProject?.submittedDate || todayISO(),
         updatedDate: todayISO()
       };
 
       let res;
+      const headers = { Authorization: `Bearer ${token}` };
       if ((formMode === "edit" || formMode === "resubmit") && editingProject) {
         res = await fetch(`${API}/projects/mongo/update/${editingProject.id}`, {
           method: "PUT",
@@ -308,9 +375,9 @@ export default function SubmitProject() {
       // Success
       await notifyFaculty(projectData.facultyId, projectTitle, formMode);
       resetForm();
-      fetchProjects();
+      await fetchProjects();
       setActiveTab("history");
-    } catch (err) {
+    } catch {
       setErrors({ message: "Server error. Please try again." });
     }
     setSubmitting(false);
@@ -377,13 +444,13 @@ export default function SubmitProject() {
         <div className="tabs">
           <button
             className={`tab ${activeTab === "new" ? "active" : ""}`}
-            onClick={() => { setActiveTab("new"); if (formMode === "new") resetForm(); }}
+            onClick={openNewSubmission}
           >
             {formMode === "edit" ? "Edit Project" : formMode === "resubmit" ? "Resubmit Project" : "New Submission"}
           </button>
           <button
             className={`tab ${activeTab === "history" ? "active" : ""}`}
-            onClick={() => setActiveTab("history")}
+            onClick={openSubmissionHistory}
           >
             Submission History
           </button>
@@ -480,7 +547,7 @@ export default function SubmitProject() {
             {errors.message && <div className="top-error">{errors.message}</div>}
 
             <div className="submit-actions">
-              <button className="cancel-btn" onClick={() => { resetForm(); setActiveTab("history"); }}>Cancel</button>
+              <button className="cancel-btn" onClick={() => { resetForm(); openSubmissionHistory(); }}>Cancel</button>
               <button className="submit-btn" onClick={handleSubmit} disabled={submitting}>
                 {submitting ? "Submitting..." : formMode === "edit" ? "Save Changes" : formMode === "resubmit" ? "Resubmit Project" : "Submit Project"}
               </button>
@@ -501,6 +568,7 @@ export default function SubmitProject() {
                   <div>
                     <h3>{item.title}</h3>
                     <p>{item.subject} · {item.technology} · v{item.version || 1}</p>
+                    <p className="deadline-meta">Last Date: {formatLastDate(item)}</p>
                     {item.status?.toLowerCase() === "approved" && item.grade && (
                       <span className="grade">Grade: {item.grade}</span>
                     )}
@@ -524,7 +592,7 @@ export default function SubmitProject() {
                     </button>
                   )}
 
-                  {item.status?.toLowerCase() === "rejected" && (
+                  {item.status?.toLowerCase() === "rejected" && canResubmit(item) && (
                     <button className="resubmit-btn" onClick={() => handleResubmit(item)}>
                       <RotateCcw size={18} /> Resubmit
                     </button>
@@ -560,6 +628,7 @@ export default function SubmitProject() {
                   </span>
                 </p>
                 <p><strong>Submitted:</strong> {selectedProject.submittedDate ? new Date(selectedProject.submittedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"}</p>
+                <p><strong>Last Date for Submission:</strong> {formatLastDate(selectedProject)}</p>
                 <p><strong>Last Updated:</strong> {selectedProject.updatedDate ? new Date(selectedProject.updatedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : selectedProject.submittedDate ? new Date(selectedProject.submittedDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"}</p>
                 <p><strong>Faculty:</strong> {selectedProject.facultyName || "-"}</p>
                 {selectedProject.grade && <p><strong>Grade:</strong> {selectedProject.grade}</p>}
@@ -585,14 +654,12 @@ export default function SubmitProject() {
                       <p>{selectedProject.fileName}</p>
                     </div>
                   </div>
-                  <a
+                  <button
                     className="file-action-btn"
-                    href={`${API}/projects/download/${selectedProject.fileName}`}
-                    target="_blank"
-                    rel="noreferrer"
+                    onClick={() => handleDownloadProjectFile(selectedProject)}
                   >
                     <Download size={16} /> Download
-                  </a>
+                  </button>
                 </div>
               )}
               {selectedProject.feedback && (

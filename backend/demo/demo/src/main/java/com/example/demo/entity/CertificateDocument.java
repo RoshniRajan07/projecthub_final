@@ -43,6 +43,8 @@ public class CertificateDocument {
 
     private String updatedDate;
 
+    private String lastSubmissionDate;
+
     private int version = 1;
 
     // GETTERS & SETTERS
@@ -181,6 +183,14 @@ public class CertificateDocument {
 
     public void setUpdatedDate(String updatedDate) {
         this.updatedDate = updatedDate;
+    }
+
+    public String getLastSubmissionDate() {
+        return lastSubmissionDate;
+    }
+
+    public void setLastSubmissionDate(String lastSubmissionDate) {
+        this.lastSubmissionDate = lastSubmissionDate;
     }
 
     public int getVersion() {

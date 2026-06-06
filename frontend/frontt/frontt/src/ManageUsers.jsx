@@ -51,8 +51,13 @@ const ManageUsers = () => {
       const res = await fetch(`${API}/users`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) setUsers(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+        return data;
+      }
     } catch (error) { console.error("Fetch users error:", error); }
+    return [];
   }, [token]);
 
   useEffect(() => {
@@ -97,11 +102,62 @@ const ManageUsers = () => {
     }
   };
 
-  const handleDelete = (user) => {
+  const openBulkModal = async () => {
+    await fetchUsers();
+    setShowBulkModal(true);
+    setBulkFile(null);
+    setBulkResult(null);
+  };
+
+  const openAddModal = async () => {
+    await fetchUsers();
+    setNewUser(EMPTY_USER);
+    setShowAddModal(true);
+  };
+
+  const toggleRoleDropdown = async () => {
+    await fetchUsers();
+    setShowDropdown(!showDropdown);
+  };
+
+  const selectRoleFilter = async (nextRole) => {
+    await fetchUsers();
+    setRole(nextRole);
+    setShowDropdown(false);
+  };
+
+  const refreshAndNavigate = async (path) => {
+    await fetchUsers();
+    navigate(path);
+  };
+
+  const closeEditModal = async () => {
+    await fetchUsers();
+    setEditUser(null);
+  };
+
+  const closeAddModal = async () => {
+    await fetchUsers();
+    setShowAddModal(false);
+  };
+
+  const closeBulkModal = async () => {
+    await fetchUsers();
+    setShowBulkModal(false);
+  };
+
+  const openFilePicker = async () => {
+    await fetchUsers();
+    fileInputRef.current?.click();
+  };
+
+  const handleDelete = async (user) => {
+    const latestUsers = await fetchUsers();
+    const latestUser = latestUsers.find((item) => item.id === user.id) || user;
     setDeleteConfirm({
       title: "Delete user?",
-      message: `Delete "${user.fullName}"? This cannot be undone.`,
-      items: [user],
+      message: `Delete "${latestUser.fullName}"? This cannot be undone.`,
+      items: [latestUser],
     });
   };
 
@@ -179,7 +235,11 @@ const ManageUsers = () => {
     } catch (error) { console.error("Create error:", error); }
   };
 
-  const handleLogout = () => { localStorage.clear(); navigate("/"); };
+  const handleLogout = async () => {
+    await fetchUsers();
+    localStorage.clear();
+    navigate("/");
+  };
 
   const handleBulkUpload = async () => {
     if (!bulkFile) { alert("Please select an Excel file"); return; }
@@ -220,22 +280,22 @@ const ManageUsers = () => {
             <h2>ProjectHub<span>+</span></h2>
           </div>
           <div className="menu">
-            <div className="menu-item" onClick={() => navigate("/admin-dashboard")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-dashboard")}>
               <LayoutDashboard size={20} /><span>Dashboard</span>
             </div>
-            <div className="menu-item active">
+            <div className="menu-item active" onClick={fetchUsers}>
               <Users size={20} /><span>Manage Users</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/view-submissions")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/view-submissions")}>
               <FileText size={20} /><span>View Submissions</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-settings")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-settings")}>
               <Settings size={20} /><span>Settings</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-profile")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-profile")}>
               <User size={20} /><span>Profile</span>
             </div>
-            <div className="menu-item" onClick={() => navigate("/admin-notifications")}>
+            <div className="menu-item" onClick={() => refreshAndNavigate("/admin-notifications")}>
               <Bell size={20} /><span>Notifications</span>
             </div>
           </div>
@@ -259,10 +319,10 @@ const ManageUsers = () => {
             <p>Create, edit and manage users.</p>
           </div>
           <div className="header-actions">
-            <button className="bulk-upload-btn" onClick={() => { setShowBulkModal(true); setBulkFile(null); setBulkResult(null); }}>
+            <button className="bulk-upload-btn" onClick={openBulkModal}>
               <Upload size={18} /> Bulk Upload
             </button>
-            <button className="add-user-btn" onClick={() => { setNewUser(EMPTY_USER); setShowAddModal(true); }}>
+            <button className="add-user-btn" onClick={openAddModal}>
               <UserPlus size={18} /> Add User
             </button>
           </div>
@@ -281,13 +341,13 @@ const ManageUsers = () => {
           </div>
 
           <div className="role-dropdown" ref={dropdownRef}>
-            <button className="role-btn" onClick={() => setShowDropdown(!showDropdown)}>
+            <button className="role-btn" onClick={toggleRoleDropdown}>
               {role} <ChevronDown size={16} />
             </button>
             {showDropdown && (
               <div className="dropdown-menu">
                 {["All Roles", "STUDENT", "FACULTY", "ADMIN"].map((r) => (
-                  <div key={r} className="dropdown-item" onClick={() => { setRole(r); setShowDropdown(false); }}>
+                  <div key={r} className="dropdown-item" onClick={() => selectRoleFilter(r)}>
                     {r}
                   </div>
                 ))}
@@ -354,7 +414,7 @@ const ManageUsers = () => {
           <div className="modal">
             <div className="modal-header">
               <h2>Edit User</h2>
-              <X size={22} className="close-icon" onClick={() => setEditUser(null)} />
+              <X size={22} className="close-icon" onClick={closeEditModal} />
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -427,7 +487,7 @@ const ManageUsers = () => {
               )}
             </div>
             <div className="modal-footer">
-              <button className="cancel-btn" onClick={() => setEditUser(null)}>Cancel</button>
+              <button className="cancel-btn" onClick={closeEditModal}>Cancel</button>
               <button className="save-btn" onClick={handleSave}>Save Changes</button>
             </div>
           </div>
@@ -440,7 +500,7 @@ const ManageUsers = () => {
           <div className="modal">
             <div className="modal-header">
               <h2>Add New User</h2>
-              <X size={22} className="close-icon" onClick={() => setShowAddModal(false)} />
+              <X size={22} className="close-icon" onClick={closeAddModal} />
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -538,13 +598,13 @@ const ManageUsers = () => {
           <div className="modal bulk-modal">
             <div className="modal-header">
               <h2>Bulk User Upload</h2>
-              <X size={22} className="close-icon" onClick={() => setShowBulkModal(false)} />
+              <X size={22} className="close-icon" onClick={closeBulkModal} />
             </div>
             <div className="modal-body">
               <p className="bulk-info">
                 Upload an Excel file (.xlsx) with columns: <strong>fullName, email, password, role, department, section</strong>
               </p>
-              <div className="bulk-upload-area" onClick={() => fileInputRef.current?.click()}>
+              <div className="bulk-upload-area" onClick={openFilePicker}>
                 <Upload size={36} />
                 <p>{bulkFile ? bulkFile.name : "Click to select Excel file"}</p>
                 <input
@@ -576,7 +636,7 @@ const ManageUsers = () => {
               )}
             </div>
             <div className="modal-footer">
-              <button className="cancel-btn" onClick={() => setShowBulkModal(false)}>Close</button>
+              <button className="cancel-btn" onClick={closeBulkModal}>Close</button>
               <button className="save-btn" onClick={handleBulkUpload} disabled={bulkUploading || !bulkFile}>
                 {bulkUploading ? "Uploading..." : "Upload & Create Users"}
               </button>
@@ -589,7 +649,7 @@ const ManageUsers = () => {
         title={deleteConfirm?.title}
         message={deleteConfirm?.message}
         busy={deleting}
-        onCancel={() => setDeleteConfirm(null)}
+        onCancel={async () => { await fetchUsers(); setDeleteConfirm(null); }}
         onConfirm={() => deleteUsers(deleteConfirm.items)}
       />
     </div>

@@ -65,27 +65,11 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [token, userId, navigate, fetchDashboardData]);
 
-  useEffect(() => {
-    const refreshWhenActive = () => {
-      if (document.visibilityState === "visible") fetchDashboardData();
-    };
-    const intervalId = setInterval(fetchDashboardData, 15000);
-
-    window.addEventListener("focus", fetchDashboardData);
-    document.addEventListener("visibilitychange", refreshWhenActive);
-
-    return () => {
-      clearInterval(intervalId);
-      window.removeEventListener("focus", fetchDashboardData);
-      document.removeEventListener("visibilitychange", refreshWhenActive);
-    };
-  }, [fetchDashboardData]);
-
   const projectStats = projects.length > 0
     ? {
         totalProjects: projects.length,
         approvedProjects: projects.filter(p => p.status?.toLowerCase() === "approved").length,
-        pendingProjects: projects.filter(p => p.status?.toLowerCase() === "pending").length,
+        pendingProjects: projects.filter(p => ["pending", "resubmitted"].includes(p.status?.toLowerCase())).length,
         rejectedProjects: projects.filter(p => p.status?.toLowerCase() === "rejected").length
       }
     : analytics;
